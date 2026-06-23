@@ -20,7 +20,9 @@ func (c *Client) WorkflowInputs(repo RepoRef, path string) ([]Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	cleaned := strings.ReplaceAll(strings.TrimSpace(string(out)), "\n", "")
+	// Strip both \n and \r: GitHub line-wraps base64 with \n, but some proxies
+	// inject \r\n, which would otherwise make the decode fail on a stray \r.
+	cleaned := strings.NewReplacer("\n", "", "\r", "").Replace(strings.TrimSpace(string(out)))
 	decoded, err := base64.StdEncoding.DecodeString(cleaned)
 	if err != nil {
 		return nil, fmt.Errorf("decoding workflow content: %w", err)
