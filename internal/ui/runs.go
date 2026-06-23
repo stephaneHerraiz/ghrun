@@ -56,15 +56,20 @@ func (r *runs) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if r.cursor >= len(r.items) {
 			r.cursor = 0
 		}
-		if r.anyActive() {
-			return r, tickCmd(r.interval)
-		}
+		// Do not start a tick here: a single self-sustaining tick chain is
+		// born in newRuns. Emitting one here too would double-poll.
 		return r, nil
 	case tickMsg:
+		// Single self-sustaining ticker: reload only while active, slow down
+		// (but keep ticking) when idle so polling resumes if a run reactivates.
+		next := r.interval
+		var reload tea.Cmd
 		if r.anyActive() {
-			return r, loadRunsCmd(r.client, r.repo, r.limit)
+			reload = loadRunsCmd(r.client, r.repo, r.limit)
+		} else {
+			next = 15 * time.Second
 		}
-		return r, nil
+		return r, tea.Batch(reload, tickCmd(next))
 	case actionDoneMsg:
 		if m.err != nil {
 			return r, func() tea.Msg { return errMsg{err: m.err} }
