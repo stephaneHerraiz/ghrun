@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -39,7 +40,7 @@ func applyDefaults(c Config) Config {
 // LoadFrom reads config from path. A missing file is not an error: it yields Default().
 func LoadFrom(path string) (Config, error) {
 	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return Default(), nil
 	}
 	if err != nil {
@@ -114,7 +115,7 @@ func (c Config) Save() error {
 // LoadRepoCacheFrom reads the cached repo list (JSON array of "owner/name").
 func LoadRepoCacheFrom(path string) ([]string, error) {
 	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
