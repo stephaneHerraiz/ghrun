@@ -68,10 +68,3 @@ func (l *logs) View() string {
 	}
 	return l.vp.View()
 }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
