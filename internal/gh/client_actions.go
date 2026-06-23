@@ -17,11 +17,16 @@ func (c *Client) DispatchWorkflow(repo RepoRef, workflowID int64, ref string, in
 	return err
 }
 
+// findRunLimit bounds how many recent runs FindRunSince scans. It only needs
+// to cover runs of a single workflow created in the seconds after a dispatch,
+// so a small window with headroom is enough.
+const findRunLimit = 20
+
 // FindRunSince returns the newest run id for workflowID created at/after since, or 0.
 func (c *Client) FindRunSince(repo RepoRef, workflowID int64, since time.Time) (int64, error) {
 	out, err := c.run.Exec("run", "list", "-R", repo.String(),
 		"--workflow", fmt.Sprintf("%d", workflowID),
-		"--limit", "10", "--json", "databaseId,createdAt")
+		"--limit", fmt.Sprintf("%d", findRunLimit), "--json", "databaseId,createdAt")
 	if err != nil {
 		return 0, err
 	}
