@@ -157,12 +157,12 @@ Via `go-gh` (`gh.Exec` + `--json`, client REST pour contenu de fichier & branche
 ## Config — `~/.config/ghrun/config.yaml`
 
 ```yaml
-defaultOrg: sixense-group        # pour le refresh `R`
+defaultOrg: stephaneHerraiz       # compte/org pour le refresh `R` (gh repo list)
 refreshIntervalSeconds: 4
 runListLimit: 30
 favorites:
-  - sixense/beyond-monitoring-backend
-  - sixense/beyond-monitoring-frontend
+  - stephaneHerraiz/ghrun
+  - stephaneHerraiz/<autre-repo>
 ```
 
 Cache repos : `~/.cache/ghrun/repos.json` (liste rafraîchie depuis `gh repo list`).
