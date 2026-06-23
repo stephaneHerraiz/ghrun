@@ -1,6 +1,6 @@
 module github.com/stephaneHerraiz/ghrun
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
-	github.com/cli/go-gh/v2 v2.13.0 // indirect
+	github.com/cli/go-gh/v2 v2.12.0 // indirect
 	github.com/cli/safeexec v1.0.0 // indirect
 	github.com/clipperhouse/displaywidth v0.9.0 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
