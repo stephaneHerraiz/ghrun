@@ -137,6 +137,27 @@ func TestAppPersistsFavoritesChange(t *testing.T) {
 	}
 }
 
+func TestAppDeliversCurrentSizeToPushedScreen(t *testing.T) {
+	a := newTestApp() // width/height seeded to 80/24
+	rec := &sizeRecordingScreen{}
+	a.push(rec)
+	if rec.gotWidth != 80 || rec.gotHeight != 24 {
+		t.Fatalf("pushed screen received %dx%d, want 80x24 (size must be delivered on push)", rec.gotWidth, rec.gotHeight)
+	}
+}
+
+func TestAppResizePropagatesToAllStackedScreens(t *testing.T) {
+	a := newTestApp()
+	r1, r2 := &sizeRecordingScreen{}, &sizeRecordingScreen{}
+	a.stack = []Screen{r1, r2}
+	a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	for i, r := range []*sizeRecordingScreen{r1, r2} {
+		if r.gotWidth != 120 || r.gotHeight != 40 {
+			t.Fatalf("stacked screen %d got %dx%d, want 120x40", i, r.gotWidth, r.gotHeight)
+		}
+	}
+}
+
 func TestNewAppShowsOrgPickerWhenNoDefaultOrg(t *testing.T) {
 	// empty default org → picker
 	a := NewApp(nil, config.Config{})

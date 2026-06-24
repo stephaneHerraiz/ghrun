@@ -31,7 +31,8 @@ type dashboard struct {
 	orgRepos    []gh.RepoRef // org repos excluding favorites (name only)
 	orgReposRaw []gh.RepoRef // full fetched org list; re-deduped when favorites change
 	cachePath   string
-	listScroll  // cursor + vertical scroll window
+	width       int // terminal width, for full-width column layout (0 = unknown)
+	listScroll      // cursor + vertical scroll window
 	filter      string
 	filtering   bool
 	loading     bool // favorites' live status loading
@@ -146,6 +147,9 @@ func (d *dashboard) loadCmd() tea.Cmd {
 }
 
 // aggregateRepoStatus reduces a repo's runs to its latest run + active count.
+// Skipped runs (path-filtered or conditionally skipped dispatches) are noise:
+// they are excluded when picking the "last run" so the dashboard surfaces the
+// most recent run that actually executed.
 func aggregateRepoStatus(repo gh.RepoRef, runs []gh.Run) repoStatus {
 	st := repoStatus{repo: repo}
 	for i := range runs {
@@ -153,9 +157,13 @@ func aggregateRepoStatus(repo gh.RepoRef, runs []gh.Run) repoStatus {
 			st.active++
 		}
 	}
-	if len(runs) > 0 {
-		latest := runs[0]
+	for i := range runs {
+		if runs[i].Conclusion == "skipped" {
+			continue
+		}
+		latest := runs[i]
 		st.latest = &latest
+		break
 	}
 	return st
 }
@@ -231,6 +239,9 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		d.orgReposRaw = m.repos
 		d.orgRepos = d.dedupOrgRepos(m.repos)
 		d.clampCursor(len(d.visible()))
+		return d, nil
+	case tea.WindowSizeMsg:
+		d.width = m.Width
 		return d, nil
 	case tea.MouseMsg:
 		d.handleWheel(m, len(d.visible()))
@@ -372,6 +383,38 @@ func favStrings(favs []gh.RepoRef) []string {
 	return out
 }
 
+// dashLayout holds the per-column display widths for the dashboard table.
+type dashLayout struct{ repo, last, state, active int }
+
+const (
+	dashStateW  = 5
+	dashActiveW = 6
+	dashRepoMin = 16
+	dashLastMin = 12
+)
+
+// dashLayoutFor sizes the four columns to fill width w: REPO and LAST RUN
+// absorb the flexible space (REPO ~45%), while STATE and ACTIVE stay fixed. The
+// scrollbar gutter (two spaces + one glyph) is reserved only when scrollbar is
+// true, so the table fills the full width when no scrollbar is drawn. A width
+// of 0 (not yet known, before the first resize) falls back to comfortable fixed
+// widths; a known-but-narrow width is clamped to the column floors so the table
+// stays as compact as possible rather than overflowing with the wide defaults.
+func dashLayoutFor(w int, scrollbar bool) dashLayout {
+	if w <= 0 {
+		return dashLayout{repo: 40, last: 26, state: dashStateW, active: dashActiveW}
+	}
+	gutter := 0
+	if scrollbar {
+		gutter = 3
+	}
+	// Reserved: cursor marker (2) + three single-space column gaps + the fixed
+	// STATE and ACTIVE columns + the optional scrollbar gutter.
+	flex := max(dashRepoMin+dashLastMin, w-(2+3+dashStateW+dashActiveW+gutter))
+	repo := max(dashRepoMin, flex*45/100)
+	return dashLayout{repo: repo, last: flex - repo, state: dashStateW, active: dashActiveW}
+}
+
 func (d *dashboard) View() string {
 	rows := d.visible()
 	if len(rows) == 0 {
@@ -391,6 +434,7 @@ func (d *dashboard) View() string {
 	offset, win := d.windowBounds(total)
 	window := rows[offset : offset+win]
 	bar := scrollbarGlyphs(total, win, offset)
+	L := dashLayoutFor(d.width, bar != nil)
 
 	// Build the row lines and a parallel scrollbar column (one glyph per row;
 	// the org separator line gets a track glyph so the bar stays continuous).
@@ -398,20 +442,21 @@ func (d *dashboard) View() string {
 	sepDone := false
 	for c, s := range window {
 		if s.isOrg && !sepDone {
-			rowLines = append(rowLines, footerStyle.Render(fmt.Sprintf("  ── repos in %s ──", d.org)))
+			rowLines = append(rowLines, d.orgSeparator(L))
 			if bar != nil {
 				barRaw = append(barRaw, scrollTrack)
 			}
 			sepDone = true
 		}
-		rowLines = append(rowLines, d.rowLine(s, offset+c == d.cursor))
+		rowLines = append(rowLines, d.rowLine(s, offset+c == d.cursor, L))
 		if bar != nil {
 			barRaw = append(barRaw, bar[c])
 		}
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-40s %-26s %-8s %s\n", "REPO", "LAST RUN", "STATE", "ACTIVE")
+	b.WriteString(d.headerLine(L))
+	b.WriteByte('\n')
 	b.WriteString(joinScrollbar(rowLines, barRaw))
 	b.WriteByte('\n')
 	if total > win {
@@ -426,9 +471,27 @@ func (d *dashboard) View() string {
 	return b.String()
 }
 
+// headerLine renders the column header, indented by the cursor-marker width so
+// it aligns with the rows below.
+func (d *dashboard) headerLine(L dashLayout) string {
+	return fmt.Sprintf("  %s %s %s %s",
+		padCell("REPO", L.repo), padCell("LAST RUN", L.last),
+		padCell("STATE", L.state), padCell("ACTIVE", L.active))
+}
+
+// orgSeparator renders the "repos in <org>" divider, extending the rule to fill
+// the table width.
+func (d *dashboard) orgSeparator(L dashLayout) string {
+	label := fmt.Sprintf("── repos in %s ", d.org)
+	rowW := 2 + L.repo + 1 + L.last + 1 + L.state + 1 + L.active // row content, no scrollbar
+	label += strings.Repeat("─", max(0, rowW-2-len([]rune(label))))
+	return footerStyle.Render("  " + label)
+}
+
 // rowLine renders one repo row (a favorite with live status, or a name-only org
-// repo which shows placeholder dashes in the status columns).
-func (d *dashboard) rowLine(s repoStatus, selected bool) string {
+// repo which shows placeholder dashes in the status columns), with each column
+// padded/truncated to the computed layout so the table fills the width.
+func (d *dashboard) rowLine(s repoStatus, selected bool, L dashLayout) string {
 	cursor := "  "
 	if selected {
 		cursor = "▸ "
@@ -444,5 +507,7 @@ func (d *dashboard) rowLine(s repoStatus, selected bool) string {
 	if s.active > 0 {
 		active = fmt.Sprintf("%d", s.active)
 	}
-	return fmt.Sprintf("%s%-40s %-26s %-8s %s", cursor, s.repo.String(), last, state, active)
+	return fmt.Sprintf("%s%s %s %s %s",
+		cursor, padCell(s.repo.String(), L.repo), padCell(last, L.last),
+		padCell(state, L.state), padCell(active, L.active))
 }

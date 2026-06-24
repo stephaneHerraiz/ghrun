@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
 
@@ -54,6 +55,29 @@ func TestRunsLoadedAndEnter(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("enter should push run detail")
 	}
+}
+
+func TestRunsViewFillsTerminalWidth(t *testing.T) {
+	r, _ := newRuns(nil, gh.RepoRef{Owner: "o", Name: "r"}, 30, 20)
+	s, _ := r.Update(runsLoadedMsg{runs: []gh.Run{
+		{ID: 1, WorkflowName: "CI", HeadBranch: "main", Title: "build", Status: "completed", Conclusion: "success"},
+	}})
+	r = s.(*runs)
+	s, _ = r.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	r = s.(*runs)
+
+	v := r.View()
+	// A single run does not overflow the page, so no scrollbar is drawn and the
+	// row must fill the terminal width exactly (140).
+	for line := range strings.SplitSeq(v, "\n") {
+		if strings.Contains(line, "CI") {
+			if w := lipgloss.Width(line); w != 140 {
+				t.Fatalf("run row width = %d, want exactly 140 (full terminal width)\nline=%q", w, line)
+			}
+			return
+		}
+	}
+	t.Fatalf("did not find the run row in:\n%s", v)
 }
 
 func TestRunsRefresh(t *testing.T) {

@@ -74,7 +74,18 @@ func (a App) Init() tea.Cmd {
 }
 
 // push appends a screen to the top of the stack.
-func (a *App) push(s Screen) { a.stack = append(a.stack, s) }
+func (a *App) push(s Screen) { a.stack = append(a.stack, a.show(s)) }
+
+// show delivers the current terminal size to a screen as it becomes visible, so
+// a freshly created screen renders at full width without waiting for the next
+// resize event. A zero size (before the first WindowSizeMsg) is left untouched.
+func (a *App) show(s Screen) Screen {
+	if s == nil || a.width <= 0 {
+		return s
+	}
+	ns, _ := s.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	return ns
+}
 
 // pop removes the top screen unless it is the only remaining one.
 func (a *App) pop() {
@@ -113,10 +124,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = m.Width, m.Height
-		if s := a.top(); s != nil {
-			ns, cmd := s.Update(msg)
-			a.replaceTop(ns)
-			return a, cmd
+		// Deliver the new size to every stacked screen so a buried screen is
+		// correctly sized when it is revealed by a pop, not just the top one.
+		for i, s := range a.stack {
+			ns, _ := s.Update(msg)
+			a.stack[i] = ns
 		}
 		return a, nil
 
@@ -162,7 +174,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		dash, dashCmd := newDashboard(a.client, a.cfg)
 		a.repo = nil
-		a.stack = []Screen{dash}
+		a.stack = []Screen{a.show(dash)}
 		return a, tea.Batch(saveCmd, dashCmd)
 	case favoritesChangedMsg:
 		a.cfg.Favorites = m.favorites
@@ -219,7 +231,7 @@ func (a App) handleGoto(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gotoReposMsg:
 		s, cmd := a.homeScreen()
 		a.repo = nil
-		a.stack = []Screen{s}
+		a.stack = []Screen{a.show(s)}
 		return a, cmd
 	case gotoWorkflowsMsg:
 		repo, ok := a.currentRepo()

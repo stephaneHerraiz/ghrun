@@ -14,7 +14,8 @@ type runs struct {
 	repo       gh.RepoRef
 	limit      int
 	items      []gh.Run
-	listScroll // cursor + vertical scroll window
+	width      int // terminal width, for full-width column layout (0 = unknown)
+	listScroll     // cursor + vertical scroll window
 	loading    bool
 	interval   time.Duration
 }
@@ -76,6 +77,9 @@ func (r *runs) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return r, func() tea.Msg { return errMsg{err: m.err} }
 		}
 		return r, loadRunsCmd(r.client, r.repo, r.limit)
+	case tea.WindowSizeMsg:
+		r.width = m.Width
+		return r, nil
 	case tea.MouseMsg:
 		r.handleWheel(m, len(r.items))
 		return r, nil
@@ -119,6 +123,30 @@ func (r *runs) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 	return r, nil
 }
 
+// runsLayout holds the per-column display widths for the runs table.
+type runsLayout struct{ wf, branch, title int }
+
+// runsLayoutFor sizes the workflow, branch, and title columns to fill width w.
+// The title column absorbs most of the flexible space; workflow and branch are
+// capped so they don't dominate a wide terminal. The scrollbar gutter is
+// reserved only when scrollbar is true, so the row fills the full width when no
+// scrollbar is drawn. A width of 0 (not yet known) falls back to fixed widths;
+// a known-but-narrow width is clamped to the column floors.
+func runsLayoutFor(w int, scrollbar bool) runsLayout {
+	if w <= 0 {
+		return runsLayout{wf: 18, branch: 16, title: 40}
+	}
+	gutter := 0
+	if scrollbar {
+		gutter = 3
+	}
+	// Reserved: cursor (2) + icon (1) + three single-space gaps + the gutter.
+	flex := max(10+8+10, w-(2+1+3+gutter))
+	wf := min(28, max(10, flex*30/100))
+	branch := min(24, max(8, flex*25/100))
+	return runsLayout{wf: wf, branch: branch, title: flex - wf - branch}
+}
+
 func (r *runs) View() string {
 	if r.loading && len(r.items) == 0 {
 		return "Loading runs…"
@@ -126,14 +154,17 @@ func (r *runs) View() string {
 	if len(r.items) == 0 {
 		return "No runs."
 	}
+	L := runsLayoutFor(r.width, len(r.items) > r.page())
 	lines := make([]string, len(r.items))
 	for i, run := range r.items {
 		cursor := "  "
 		if i == r.cursor {
 			cursor = "▸ "
 		}
-		lines[i] = fmt.Sprintf("%s%s %-18s %-16s %s",
-			cursor, statusIcon(run.Status, run.Conclusion), run.WorkflowName, run.HeadBranch, run.Title)
+		lines[i] = fmt.Sprintf("%s%s %s %s %s",
+			cursor, padCell(statusIcon(run.Status, run.Conclusion), 1),
+			padCell(run.WorkflowName, L.wf), padCell(run.HeadBranch, L.branch),
+			padCell(run.Title, L.title))
 	}
 	var b strings.Builder
 	b.WriteString(r.render(lines))
