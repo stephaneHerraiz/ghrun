@@ -70,10 +70,10 @@ func (w *workflows) Update(msg tea.Msg) (Screen, tea.Cmd) {
 
 func (w *workflows) View() string {
 	if w.loading {
-		return "Chargement des workflows…"
+		return "Loading workflows…"
 	}
 	if len(w.items) == 0 {
-		return "Aucun workflow."
+		return "No workflows."
 	}
 	lines := make([]string, len(w.items))
 	for i, wf := range w.items {
@@ -85,6 +85,6 @@ func (w *workflows) View() string {
 	}
 	var b strings.Builder
 	b.WriteString(w.render(lines))
-	b.WriteString("\n\n[Enter] configurer le lancement")
+	b.WriteString("\n\n[Enter] configure launch")
 	return b.String()
 }

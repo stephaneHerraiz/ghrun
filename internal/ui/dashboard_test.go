@@ -183,7 +183,7 @@ func TestDashboardViewShowsOrgSeparator(t *testing.T) {
 	sc, _ := d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{{Owner: "acme", Name: "tool"}}})
 	d = sc.(*dashboard)
 	v := d.View()
-	if !strings.Contains(v, "acme") || !strings.Contains(v, "repos de") {
+	if !strings.Contains(v, "acme") || !strings.Contains(v, "repos in") {
 		t.Fatalf("view should show the org separator; got:\n%s", v)
 	}
 }

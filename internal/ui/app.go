@@ -263,10 +263,10 @@ func (a App) footer() string {
 	var keys string
 	if a.showHelp {
 		keys = strings.Join([]string{
-			"Navigation : [W] workflows · [U] runs · [R] repos (accueil) · esc retour · q quitter",
-			"Listes : ↑/↓ déplacer · Enter ouvrir · f favori (accueil) · / filtrer (accueil)",
-			"Runs : r relancer · f relancer échecs · x annuler · o ouvrir web · l logs · g rafraîchir",
-			"? masquer l'aide",
+			"Navigation: [W] workflows · [U] runs · [R] repos (home) · esc back · q quit",
+			"Lists: ↑/↓ move · Enter open · f favorite (home) · / filter (home)",
+			"Runs: r rerun · f rerun-failed · x cancel · o open web · l logs · g refresh",
+			"? hide help",
 		}, "\n")
 	} else {
 		keys = "[W]orkflows  [U] runs  [R]epos  ·  esc back  ?  help  q quit"
