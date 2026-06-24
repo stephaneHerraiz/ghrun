@@ -187,6 +187,85 @@ func TestDashboardViewShowsOrgSeparator(t *testing.T) {
 	}
 }
 
+func countThumb(g []string) int {
+	n := 0
+	for _, c := range g {
+		if c == scrollThumb {
+			n++
+		}
+	}
+	return n
+}
+
+func TestScrollbarGlyphs(t *testing.T) {
+	// Everything fits → no scrollbar.
+	if g := scrollbarGlyphs(3, 3, 0); g != nil {
+		t.Errorf("total<=win should give nil, got %v", g)
+	}
+
+	// 10 rows, window of 5: thumb height = 25/10 = 2, at top when offset 0.
+	top := scrollbarGlyphs(10, 5, 0)
+	if len(top) != 5 {
+		t.Fatalf("len = %d, want 5", len(top))
+	}
+	if countThumb(top) != 2 {
+		t.Errorf("thumb height = %d, want 2 (glyphs=%v)", countThumb(top), top)
+	}
+	if top[0] != scrollThumb || top[4] != scrollTrack {
+		t.Errorf("offset 0 should put thumb at top; got %v", top)
+	}
+
+	// Scrolled to the bottom: thumb sits at the end.
+	bot := scrollbarGlyphs(10, 5, 5)
+	if bot[len(bot)-1] != scrollThumb || bot[0] != scrollTrack {
+		t.Errorf("max offset should put thumb at bottom; got %v", bot)
+	}
+}
+
+func TestDashboardWindowsAndScrollsWithCursor(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", DashboardPageSize: 3})
+	repos := []gh.RepoRef{
+		{Owner: "acme", Name: "r0"}, {Owner: "acme", Name: "r1"}, {Owner: "acme", Name: "r2"},
+		{Owner: "acme", Name: "r3"}, {Owner: "acme", Name: "r4"}, {Owner: "acme", Name: "r5"},
+	}
+	sc, _ := d.Update(orgReposLoadedMsg{repos: repos})
+	d = sc.(*dashboard)
+
+	if d.offset != 0 || d.cursor != 0 {
+		t.Fatalf("initial cursor/offset = %d/%d, want 0/0", d.cursor, d.offset)
+	}
+	// Only pageSize rows are rendered, and the scrollbar thumb is present.
+	v := d.View()
+	if strings.Count(v, "acme/r") != 3 {
+		t.Fatalf("view should show 3 repo rows, found %d:\n%s", strings.Count(v, "acme/r"), v)
+	}
+	if !strings.Contains(v, scrollThumb) {
+		t.Errorf("overflowing list should render a scrollbar thumb; got:\n%s", v)
+	}
+	if !strings.Contains(v, "/ 6") {
+		t.Errorf("view should show the position indicator '… / 6'; got:\n%s", v)
+	}
+
+	// Move the cursor to the bottom: the window must scroll.
+	for range 5 {
+		sc, _ = d.Update(tea.KeyMsg{Type: tea.KeyDown})
+		d = sc.(*dashboard)
+	}
+	if d.cursor != 5 {
+		t.Fatalf("cursor = %d, want 5", d.cursor)
+	}
+	if d.offset != 3 {
+		t.Fatalf("offset = %d, want 3 (window follows cursor to the bottom)", d.offset)
+	}
+	v = d.View()
+	if !strings.Contains(v, "acme/r5") {
+		t.Errorf("scrolled view should show the last repo r5; got:\n%s", v)
+	}
+	if strings.Contains(v, "acme/r0") {
+		t.Errorf("scrolled view should NOT show the first repo r0; got:\n%s", v)
+	}
+}
+
 func TestDashboardCursorClampedAfterLoad(t *testing.T) {
 	d, _ := newDashboard(nil, config.Config{Favorites: []string{}})
 	d.cursor = 2

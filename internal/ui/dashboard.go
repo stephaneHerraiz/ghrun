@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
@@ -31,6 +32,7 @@ type dashboard struct {
 	orgRepos   []gh.RepoRef // org repos excluding favorites (name only)
 	cachePath  string
 	cursor     int
+	offset     int // index of the first displayed row (vertical scroll position)
 	filter     string
 	filtering  bool
 	loading    bool // favorites' live status loading
@@ -95,6 +97,32 @@ func (d *dashboard) dedupOrgRepos(repos []gh.RepoRef) []gh.RepoRef {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].String() < out[j].String() })
 	return out
+}
+
+// pageSize is the max number of repo rows shown at once (configurable).
+func (d *dashboard) pageSize() int {
+	n := d.cfg.DashboardPageSize
+	if n < 1 {
+		n = 20
+	}
+	return n
+}
+
+// clampOffset keeps a scroll offset within [0, total-page].
+func clampOffset(off, page, total int) int {
+	return max(0, min(off, max(0, total-page)))
+}
+
+// ensureVisible scrolls the window so the cursor row stays in view.
+func (d *dashboard) ensureVisible() {
+	page := d.pageSize()
+	total := len(d.visible())
+	if d.cursor < d.offset {
+		d.offset = d.cursor
+	} else if d.cursor >= d.offset+page {
+		d.offset = d.cursor - page + 1
+	}
+	d.offset = clampOffset(d.offset, page, total)
 }
 
 func (d *dashboard) interval() time.Duration {
@@ -204,6 +232,7 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if n := len(d.visible()); d.cursor >= n {
 			d.cursor = 0
 		}
+		d.ensureVisible()
 		return d, nil
 	case orgReposLoadedMsg:
 		if !m.fromCache {
@@ -227,6 +256,7 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if n := len(d.visible()); d.cursor >= n {
 			d.cursor = 0
 		}
+		d.ensureVisible()
 		return d, nil
 	case tea.KeyMsg:
 		return d.handleKey(m)
@@ -272,6 +302,7 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 				d.cursor++
 			}
 		}
+		d.ensureVisible()
 		return d, nil
 	}
 
@@ -295,6 +326,7 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 	case "/":
 		d.filtering = true
 	}
+	d.ensureVisible()
 	return d, nil
 }
 
@@ -315,36 +347,70 @@ func (d *dashboard) View() string {
 		}
 		return "Aucun favori configuré.\nÉditez ~/.config/ghrun/config.yaml (clé favorites)."
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%-40s %-26s %-8s %s\n", "REPO", "DERNIER RUN", "ÉTAT", "ACTIFS")
+	// Window the rows to pageSize and follow the cursor.
+	page := d.pageSize()
+	total := len(rows)
+	win := min(page, total)
+	offset := clampOffset(d.offset, page, total)
+	window := rows[offset : offset+win]
+	bar := scrollbarGlyphs(total, win, offset)
+
+	// Build the row lines and a parallel scrollbar column (one glyph per row;
+	// the org separator line gets a track glyph so the bar stays continuous).
+	var rowLines, barLines []string
 	sepDone := false
-	for i, s := range rows {
+	for c, s := range window {
 		if s.isOrg && !sepDone {
-			fmt.Fprintf(&b, "  ── repos de %s ──\n", d.org)
+			rowLines = append(rowLines, footerStyle.Render(fmt.Sprintf("  ── repos de %s ──", d.org)))
+			if bar != nil {
+				barLines = append(barLines, styleGlyph(scrollTrack))
+			}
 			sepDone = true
 		}
-		cursor := "  "
-		if i == d.cursor {
-			cursor = "▸ "
+		rowLines = append(rowLines, d.rowLine(s, offset+c == d.cursor))
+		if bar != nil {
+			barLines = append(barLines, styleGlyph(bar[c]))
 		}
-		last, state := "—", "—"
-		if s.err != nil {
-			last, state = "erreur", "!"
-		} else if s.latest != nil {
-			last = fmt.Sprintf("%s · %s", s.latest.WorkflowName, s.latest.HeadBranch)
-			state = statusIcon(s.latest.Status, s.latest.Conclusion)
-		}
-		active := "–"
-		if s.active > 0 {
-			active = fmt.Sprintf("%d", s.active)
-		}
-		fmt.Fprintf(&b, "%s%-40s %-26s %-8s %s\n", cursor, s.repo.String(), last, state, active)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-40s %-26s %-8s %s\n", "REPO", "DERNIER RUN", "ÉTAT", "ACTIFS")
+	list := strings.Join(rowLines, "\n")
+	if bar != nil {
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, list, "  ", strings.Join(barLines, "\n")))
+	} else {
+		b.WriteString(list)
+	}
+	b.WriteByte('\n')
+	if total > win {
+		fmt.Fprintln(&b, footerStyle.Render(fmt.Sprintf("repos %d–%d / %d", offset+1, offset+win, total)))
 	}
 	if d.filtering {
-		b.WriteString("\nfiltre: " + d.filter + "▌")
+		b.WriteString("filtre: " + d.filter + "▌\n")
 	} else if d.filter != "" {
-		b.WriteString("\nfiltre: " + d.filter)
+		b.WriteString("filtre: " + d.filter + "\n")
 	}
-	b.WriteString("\n[Enter] entrer  ·  [g] refresh  ·  [/] filtrer")
+	b.WriteString("[Enter] entrer  ·  [g] refresh  ·  [/] filtrer")
 	return b.String()
+}
+
+// rowLine renders one repo row (a favorite with live status, or a name-only org
+// repo which shows placeholder dashes in the status columns).
+func (d *dashboard) rowLine(s repoStatus, selected bool) string {
+	cursor := "  "
+	if selected {
+		cursor = "▸ "
+	}
+	last, state := "—", "—"
+	if s.err != nil {
+		last, state = "erreur", "!"
+	} else if s.latest != nil {
+		last = fmt.Sprintf("%s · %s", s.latest.WorkflowName, s.latest.HeadBranch)
+		state = statusIcon(s.latest.Status, s.latest.Conclusion)
+	}
+	active := "–"
+	if s.active > 0 {
+		active = fmt.Sprintf("%d", s.active)
+	}
+	return fmt.Sprintf("%s%-40s %-26s %-8s %s", cursor, s.repo.String(), last, state, active)
 }
