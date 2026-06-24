@@ -71,7 +71,7 @@ func (d *rundetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
 
 func (d *rundetail) View() string {
 	if !d.loaded {
-		return "Chargement du run…"
+		return "Loading run…"
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s run #%d — %s\n\n",

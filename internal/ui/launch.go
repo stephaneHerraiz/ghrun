@@ -150,7 +150,7 @@ func (l *launch) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			if m.attempt+1 >= maxFindRunAttempts {
 				l.phase = phaseInputs
 				return l, func() tea.Msg {
-					return errMsg{err: fmt.Errorf("run introuvable après %d tentatives — vérifiez l'onglet runs", maxFindRunAttempts)}
+					return errMsg{err: fmt.Errorf("run not found after %d attempts — check the runs tab", maxFindRunAttempts)}
 				}
 			}
 			return l, l.findRunCmd(m.attempt + 1)
@@ -280,9 +280,9 @@ func (l *launch) View() string {
 	var b strings.Builder
 	switch l.phase {
 	case phaseBranch:
-		b.WriteString("Choisir la branche (ref) :\n\n")
+		b.WriteString("Choose the branch (ref):\n\n")
 		if len(l.branches) == 0 {
-			b.WriteString("(chargement des branches…)\n")
+			b.WriteString("(loading branches…)\n")
 		} else {
 			lines := make([]string, len(l.branches))
 			for i, br := range l.branches {
@@ -294,9 +294,9 @@ func (l *launch) View() string {
 			}
 			b.WriteString(l.branchList.render(lines) + "\n")
 		}
-		b.WriteString("\n[Enter] continuer")
+		b.WriteString("\n[Enter] continue")
 	case phaseInputs:
-		b.WriteString(fmt.Sprintf("Branche: %s\n\n", l.currentBranch()))
+		b.WriteString(fmt.Sprintf("Branch: %s\n\n", l.currentBranch()))
 		for i, f := range l.fields {
 			cursor := "  "
 			if i == l.cursor {
@@ -309,11 +309,11 @@ func (l *launch) View() string {
 			b.WriteString(fmt.Sprintf("%s%s%s: %s\n", cursor, f.in.Name, req, l.renderField(f)))
 		}
 		if len(l.missing) > 0 {
-			b.WriteString(errStyle.Render("\nChamps requis manquants: "+strings.Join(l.missing, ", ")) + "\n")
+			b.WriteString(errStyle.Render("\nMissing required fields: "+strings.Join(l.missing, ", ")) + "\n")
 		}
-		b.WriteString("\n[Enter] lancer  ·  ↑/↓ champ  ·  ←/→ change choix/booléen")
+		b.WriteString("\n[Enter] launch  ·  ↑/↓ field  ·  ←/→ change choice/boolean")
 	case phaseSubmitting:
-		b.WriteString("Lancement en cours, recherche du run…")
+		b.WriteString("Launching, looking for the run…")
 	}
 	return b.String()
 }

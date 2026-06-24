@@ -62,7 +62,7 @@ func (l *logs) Update(msg tea.Msg) (Screen, tea.Cmd) {
 
 func (l *logs) View() string {
 	if l.loading {
-		return "Chargement des logs…"
+		return "Loading logs…"
 	}
 	if l.errText != "" {
 		return errStyle.Render("⚠ " + l.errText)

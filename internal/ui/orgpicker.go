@@ -22,7 +22,7 @@ func newOrgPicker(c GHClient) (*orgpicker, tea.Cmd) {
 
 func (p *orgpicker) initCmd() tea.Cmd { return loadNamespacesCmd(p.client) }
 
-func (p *orgpicker) Title() string { return "Choisir une organisation" }
+func (p *orgpicker) Title() string { return "Choose an organization" }
 
 func (p *orgpicker) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch m := msg.(type) {
@@ -63,16 +63,16 @@ func (p *orgpicker) Update(msg tea.Msg) (Screen, tea.Cmd) {
 
 func (p *orgpicker) View() string {
 	if p.loading {
-		return "Chargement des organisations…"
+		return "Loading organizations…"
 	}
 	if p.errText != "" {
-		return errStyle.Render("⚠ "+p.errText) + "\n\n[g] réessayer  ·  q quitter"
+		return errStyle.Render("⚠ "+p.errText) + "\n\n[g] retry  ·  q quit"
 	}
 	if len(p.items) == 0 {
-		return "Aucune organisation trouvée.\n\n[g] réessayer  ·  q quitter"
+		return "No organization found.\n\n[g] retry  ·  q quit"
 	}
 	var b strings.Builder
-	b.WriteString("Choisis l'organisation ou le compte par défaut :\n\n")
+	b.WriteString("Choose the default organization or account:\n\n")
 	for i, name := range p.items {
 		cursor := "  "
 		if i == p.cursor {
@@ -80,6 +80,6 @@ func (p *orgpicker) View() string {
 		}
 		b.WriteString(cursor + name + "\n")
 	}
-	b.WriteString("\n[Enter] choisir  ·  [g] rafraîchir")
+	b.WriteString("\n[Enter] choose  ·  [g] refresh")
 	return b.String()
 }

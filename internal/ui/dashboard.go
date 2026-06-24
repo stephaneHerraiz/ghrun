@@ -376,15 +376,15 @@ func (d *dashboard) View() string {
 	rows := d.visible()
 	if len(rows) == 0 {
 		if d.loading || d.orgLoading {
-			return "Chargement des repos…"
+			return "Loading repos…"
 		}
 		if d.filter != "" {
-			return "Aucun repo ne correspond au filtre « " + d.filter + " ».\n[esc] effacer le filtre"
+			return "No repo matches the filter \"" + d.filter + "\".\n[esc] clear the filter"
 		}
 		if d.org != "" {
-			return fmt.Sprintf("Aucun repo pour %s.\nAjoute des favoris dans ~/.config/ghrun/config.yaml (clé favorites) ou appuie sur [g] pour rafraîchir.", d.org)
+			return fmt.Sprintf("No repos for %s.\nAdd favorites in ~/.config/ghrun/config.yaml (favorites key) or press [g] to refresh.", d.org)
 		}
-		return "Aucun favori configuré.\nÉditez ~/.config/ghrun/config.yaml (clé favorites)."
+		return "No favorites configured.\nEdit ~/.config/ghrun/config.yaml (favorites key)."
 	}
 	// Window the rows to pageSize and follow the cursor.
 	total := len(rows)
@@ -398,7 +398,7 @@ func (d *dashboard) View() string {
 	sepDone := false
 	for c, s := range window {
 		if s.isOrg && !sepDone {
-			rowLines = append(rowLines, footerStyle.Render(fmt.Sprintf("  ── repos de %s ──", d.org)))
+			rowLines = append(rowLines, footerStyle.Render(fmt.Sprintf("  ── repos in %s ──", d.org)))
 			if bar != nil {
 				barRaw = append(barRaw, scrollTrack)
 			}
@@ -411,18 +411,18 @@ func (d *dashboard) View() string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-40s %-26s %-8s %s\n", "REPO", "DERNIER RUN", "ÉTAT", "ACTIFS")
+	fmt.Fprintf(&b, "%-40s %-26s %-8s %s\n", "REPO", "LAST RUN", "STATE", "ACTIVE")
 	b.WriteString(joinScrollbar(rowLines, barRaw))
 	b.WriteByte('\n')
 	if total > win {
 		fmt.Fprintln(&b, footerStyle.Render(fmt.Sprintf("repos %d–%d / %d", offset+1, offset+win, total)))
 	}
 	if d.filtering {
-		b.WriteString("filtre: " + d.filter + "▌\n")
+		b.WriteString("filter: " + d.filter + "▌\n")
 	} else if d.filter != "" {
-		b.WriteString("filtre: " + d.filter + "\n")
+		b.WriteString("filter: " + d.filter + "\n")
 	}
-	b.WriteString("[Enter] entrer  ·  [f] favori  ·  [g] refresh  ·  [/] filtrer")
+	b.WriteString("[Enter] enter  ·  [f] favorite  ·  [g] refresh  ·  [/] filter")
 	return b.String()
 }
 
@@ -435,7 +435,7 @@ func (d *dashboard) rowLine(s repoStatus, selected bool) string {
 	}
 	last, state := "—", "—"
 	if s.err != nil {
-		last, state = "erreur", "!"
+		last, state = "error", "!"
 	} else if s.latest != nil {
 		last = fmt.Sprintf("%s · %s", s.latest.WorkflowName, s.latest.HeadBranch)
 		state = statusIcon(s.latest.Status, s.latest.Conclusion)

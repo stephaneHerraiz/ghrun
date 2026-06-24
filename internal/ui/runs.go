@@ -121,10 +121,10 @@ func (r *runs) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 
 func (r *runs) View() string {
 	if r.loading && len(r.items) == 0 {
-		return "Chargement des runs…"
+		return "Loading runs…"
 	}
 	if len(r.items) == 0 {
-		return "Aucun run."
+		return "No runs."
 	}
 	lines := make([]string, len(r.items))
 	for i, run := range r.items {
@@ -137,6 +137,6 @@ func (r *runs) View() string {
 	}
 	var b strings.Builder
 	b.WriteString(r.render(lines))
-	b.WriteString("\n\n[Enter] détail  ·  r rerun  f rerun-failed  x cancel  o web  g refresh")
+	b.WriteString("\n\n[Enter] detail  ·  r rerun  f rerun-failed  x cancel  o web  g refresh")
 	return b.String()
 }
