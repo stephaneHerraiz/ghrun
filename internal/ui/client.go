@@ -20,4 +20,5 @@ type GHClient interface {
 	RunLogs(repo gh.RepoRef, id int64, failedOnly bool) (string, error)
 	OpenWeb(repo gh.RepoRef, id int64) error
 	ListOrgRepos(org string) ([]gh.RepoRef, error)
+	ListNamespaces() ([]string, error)
 }
