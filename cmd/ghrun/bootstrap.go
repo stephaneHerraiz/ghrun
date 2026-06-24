@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -16,7 +17,12 @@ func ensureConfig() (config.Config, error) {
 	if err != nil {
 		return config.Config{}, err
 	}
-	if _, statErr := os.Stat(p); os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(p); statErr != nil {
+		// A real stat error (e.g. permission denied) must surface, not be
+		// silently treated as "file absent" — only ErrNotExist means first run.
+		if !errors.Is(statErr, os.ErrNotExist) {
+			return config.Config{}, statErr
+		}
 		template := config.Default()
 		template.DefaultOrg = "stephaneHerraiz"
 		template.Favorites = []string{}
