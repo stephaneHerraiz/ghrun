@@ -164,6 +164,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.repo = nil
 		a.stack = []Screen{dash}
 		return a, tea.Batch(saveCmd, dashCmd)
+	case favoritesChangedMsg:
+		a.cfg.Favorites = m.favorites
+		if a.saveConfig != nil {
+			if err := a.saveConfig(a.cfg); err != nil {
+				return a, func() tea.Msg { return errMsg{err: fmt.Errorf("saving favorites: %w", err)} }
+			}
+		}
+		return a, nil
 	case pushMsg:
 		a.push(m.screen)
 		return a, nil
@@ -256,7 +264,7 @@ func (a App) footer() string {
 	if a.showHelp {
 		keys = strings.Join([]string{
 			"Navigation : [W] workflows · [U] runs · [R] repos (accueil) · esc retour · q quitter",
-			"Listes : ↑/↓ déplacer · Enter ouvrir · / filtrer (accueil)",
+			"Listes : ↑/↓ déplacer · Enter ouvrir · f favori (accueil) · / filtrer (accueil)",
 			"Runs : r relancer · f relancer échecs · x annuler · o ouvrir web · l logs · g rafraîchir",
 			"? masquer l'aide",
 		}, "\n")

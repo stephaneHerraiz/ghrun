@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -184,6 +185,95 @@ func TestDashboardViewShowsOrgSeparator(t *testing.T) {
 	v := d.View()
 	if !strings.Contains(v, "acme") || !strings.Contains(v, "repos de") {
 		t.Fatalf("view should show the org separator; got:\n%s", v)
+	}
+}
+
+// batchEmitsFavorites reports whether cmd (possibly a tea.Batch) yields a
+// favoritesChangedMsg carrying exactly want. Safe to call only when any sibling
+// commands in the batch are client-free (e.g. loadCmd with no favorites).
+func batchEmitsFavorites(cmd tea.Cmd, want []string) bool {
+	if cmd == nil {
+		return false
+	}
+	check := func(m tea.Msg) bool {
+		fc, ok := m.(favoritesChangedMsg)
+		return ok && slices.Equal(fc.favorites, want)
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			if c != nil && check(c()) {
+				return true
+			}
+		}
+		return false
+	}
+	return check(msg)
+}
+
+func orgRepoNames(rs []gh.RepoRef) []string {
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = r.Name
+	}
+	return out
+}
+
+func TestDashboardToggleFavoriteAddsOrgRepo(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme"})
+	sc, _ := d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{{Owner: "acme", Name: "tool"}}})
+	d = sc.(*dashboard)
+
+	// Cursor on the single org row; press 'f' to pin it as a favorite.
+	sc, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	d = sc.(*dashboard)
+
+	if cmd == nil {
+		t.Fatal("toggling a favorite should return a command (reload + persist)")
+	}
+	if len(d.favs) != 1 || d.favs[0].Name != "tool" {
+		t.Fatalf("favs = %+v, want [acme/tool]", d.favs)
+	}
+	if !slices.Contains(d.cfg.Favorites, "acme/tool") || len(d.cfg.Favorites) != 1 {
+		t.Fatalf("cfg.Favorites = %v, want [acme/tool]", d.cfg.Favorites)
+	}
+	if len(d.orgRepos) != 0 {
+		t.Fatalf("orgRepos = %+v, want empty (tool moved to favorites)", d.orgRepos)
+	}
+	// Still selectable, now as a favorite row (not org), and the cursor stays on it.
+	vis := d.visible()
+	if len(vis) != 1 || vis[0].isOrg || vis[0].repo.Name != "tool" {
+		t.Fatalf("visible = %+v, want a single favorite row for tool", vis)
+	}
+	if vis[d.cursor].repo.Name != "tool" {
+		t.Errorf("cursor should stay on tool, points at %s", vis[d.cursor].repo.String())
+	}
+}
+
+func TestDashboardToggleFavoriteRemovesAndPersists(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", Favorites: []string{"acme/tool"}})
+	sc, _ := d.Update(dashboardLoadedMsg{statuses: []repoStatus{{repo: gh.RepoRef{Owner: "acme", Name: "tool"}}}})
+	d = sc.(*dashboard)
+	// The org list also contains the favorite, so un-pinning brings it back.
+	sc, _ = d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{{Owner: "acme", Name: "tool"}, {Owner: "acme", Name: "other"}}})
+	d = sc.(*dashboard)
+
+	d.cursor = 0 // the favorite row
+	sc, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	d = sc.(*dashboard)
+
+	if len(d.favs) != 0 {
+		t.Fatalf("favs = %+v, want empty after un-favorite", d.favs)
+	}
+	if len(d.cfg.Favorites) != 0 {
+		t.Fatalf("cfg.Favorites = %v, want empty", d.cfg.Favorites)
+	}
+	if !slices.Contains(orgRepoNames(d.orgRepos), "tool") {
+		t.Fatalf("orgRepos = %v, want tool restored to the org list", orgRepoNames(d.orgRepos))
+	}
+	// favs is now empty, so loadCmd in the batch is client-free and safe to run.
+	if !batchEmitsFavorites(cmd, []string{}) {
+		t.Fatal("un-favorite should emit favoritesChangedMsg with the updated (empty) favorites")
 	}
 }
 

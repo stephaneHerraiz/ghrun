@@ -23,19 +23,20 @@ type repoStatus struct {
 type dashboardLoadedMsg struct{ statuses []repoStatus }
 
 type dashboard struct {
-	client     GHClient
-	cfg        config.Config
-	org        string // cfg.DefaultOrg: source for the listed org repos
-	favs       []gh.RepoRef
-	statuses   []repoStatus
-	orgRepos   []gh.RepoRef // org repos excluding favorites (name only)
-	cachePath  string
-	listScroll // cursor + vertical scroll window
-	filter     string
-	filtering  bool
-	loading    bool // favorites' live status loading
-	orgLoading bool // org repo list loading (cache + gh)
-	orgFetched bool // a fresh (non-cache) org repo result has been applied
+	client      GHClient
+	cfg         config.Config
+	org         string // cfg.DefaultOrg: source for the listed org repos
+	favs        []gh.RepoRef
+	statuses    []repoStatus
+	orgRepos    []gh.RepoRef // org repos excluding favorites (name only)
+	orgReposRaw []gh.RepoRef // full fetched org list; re-deduped when favorites change
+	cachePath   string
+	listScroll  // cursor + vertical scroll window
+	filter      string
+	filtering   bool
+	loading     bool // favorites' live status loading
+	orgLoading  bool // org repo list loading (cache + gh)
+	orgFetched  bool // a fresh (non-cache) org repo result has been applied
 }
 
 // capturingInput reports whether the dashboard is in text-entry (filter) mode,
@@ -227,6 +228,7 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if !m.fromCache {
 			d.orgFetched = true
 		}
+		d.orgReposRaw = m.repos
 		d.orgRepos = d.dedupOrgRepos(m.repos)
 		d.clampCursor(len(d.visible()))
 		return d, nil
@@ -284,6 +286,10 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 		d.down(len(vis))
 	case "g":
 		return d, tea.Batch(d.loadCmd(), d.refreshOrgReposCmd())
+	case "f":
+		if d.cursor < len(vis) {
+			return d, d.toggleFavorite(vis[d.cursor].repo)
+		}
 	case "enter":
 		if d.cursor < len(vis) {
 			repo := vis[d.cursor].repo
@@ -298,6 +304,73 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 
 // enterRepoMsg asks the App to set the repo and open its runs screen.
 type enterRepoMsg struct{ repo gh.RepoRef }
+
+// favoritesChangedMsg asks the App to persist the new favorites list to config.
+type favoritesChangedMsg struct{ favorites []string }
+
+// toggleFavorite pins or unpins repo as a favorite, updates the visible list
+// immediately (keeping the cursor on the toggled repo), and returns a command
+// that reloads favorite statuses and persists the change via the App.
+func (d *dashboard) toggleFavorite(repo gh.RepoRef) tea.Cmd {
+	key := repo.String()
+	var favs []gh.RepoRef
+	wasFav := false
+	for _, f := range d.favs {
+		if f.String() == key {
+			wasFav = true
+			continue // drop it (un-favorite)
+		}
+		favs = append(favs, f)
+	}
+	if wasFav {
+		d.statuses = removeStatus(d.statuses, key)
+	} else {
+		favs = append(favs, repo)
+		// Show the new favorite right away with a placeholder so it doesn't
+		// vanish between leaving the org list and loadCmd refreshing its status.
+		d.statuses = append(d.statuses, repoStatus{repo: repo})
+	}
+	d.favs = favs
+	d.cfg.Favorites = favStrings(favs)
+	// A removed favorite that belongs to the org reappears in the org list.
+	d.orgRepos = d.dedupOrgRepos(d.orgReposRaw)
+	d.keepCursorOn(key)
+	return tea.Batch(d.loadCmd(), func() tea.Msg { return favoritesChangedMsg{favorites: d.cfg.Favorites} })
+}
+
+// keepCursorOn moves the cursor to the row matching key (if still present),
+// keeping the highlight on a repo as it moves between sections.
+func (d *dashboard) keepCursorOn(key string) {
+	vis := d.visible()
+	for i, s := range vis {
+		if s.repo.String() == key {
+			d.cursor = i
+			d.ensureVisible(len(vis))
+			return
+		}
+	}
+	d.clampCursor(len(vis))
+}
+
+// removeStatus returns ss without the entry for the given "owner/name" key.
+func removeStatus(ss []repoStatus, key string) []repoStatus {
+	var out []repoStatus
+	for _, s := range ss {
+		if s.repo.String() != key {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// favStrings renders favorites as "owner/name" config entries.
+func favStrings(favs []gh.RepoRef) []string {
+	out := make([]string, len(favs))
+	for i, f := range favs {
+		out[i] = f.String()
+	}
+	return out
+}
 
 func (d *dashboard) View() string {
 	rows := d.visible()
@@ -349,7 +422,7 @@ func (d *dashboard) View() string {
 	} else if d.filter != "" {
 		b.WriteString("filtre: " + d.filter + "\n")
 	}
-	b.WriteString("[Enter] entrer  ·  [g] refresh  ·  [/] filtrer")
+	b.WriteString("[Enter] entrer  ·  [f] favori  ·  [g] refresh  ·  [/] filtrer")
 	return b.String()
 }
 
