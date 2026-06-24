@@ -9,15 +9,15 @@ import (
 )
 
 type workflows struct {
-	client  GHClient
-	repo    gh.RepoRef
-	items   []gh.Workflow
-	cursor  int
-	loading bool
+	client     GHClient
+	repo       gh.RepoRef
+	items      []gh.Workflow
+	listScroll // cursor + vertical scroll window
+	loading    bool
 }
 
-func newWorkflows(c GHClient, repo gh.RepoRef) (*workflows, tea.Cmd) {
-	w := &workflows{client: c, repo: repo, loading: true}
+func newWorkflows(c GHClient, repo gh.RepoRef, pageSize int) (*workflows, tea.Cmd) {
+	w := &workflows{client: c, repo: repo, listScroll: listScroll{pageSize: pageSize}, loading: true}
 	return w, loadWorkflowsCmd(c, repo)
 }
 
@@ -31,17 +31,19 @@ func (w *workflows) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return w, func() tea.Msg { return errMsg{err: m.err} }
 		}
 		w.items = m.workflows
+		w.clampCursor(len(w.items))
+		return w, nil
+	case tea.MouseMsg:
+		w.handleWheel(m, len(w.items))
 		return w, nil
 	case tea.KeyMsg:
 		switch m.String() {
 		case "up", "k":
-			if w.cursor > 0 {
-				w.cursor--
-			}
+			w.up()
+			w.ensureVisible(len(w.items))
 		case "down", "j":
-			if w.cursor < len(w.items)-1 {
-				w.cursor++
-			}
+			w.down(len(w.items))
+			w.ensureVisible(len(w.items))
 		case "enter":
 			if w.cursor < len(w.items) {
 				wf := w.items[w.cursor]
@@ -60,7 +62,7 @@ func (w *workflows) Update(msg tea.Msg) (Screen, tea.Cmd) {
 				break
 			}
 		}
-		lc, cmd := newLaunch(w.client, w.repo, wf, m.inputs)
+		lc, cmd := newLaunch(w.client, w.repo, wf, m.inputs, w.pageSize)
 		return w, tea.Batch(func() tea.Msg { return pushMsg{screen: lc} }, cmd)
 	}
 	return w, nil
@@ -73,14 +75,16 @@ func (w *workflows) View() string {
 	if len(w.items) == 0 {
 		return "Aucun workflow."
 	}
-	var b strings.Builder
+	lines := make([]string, len(w.items))
 	for i, wf := range w.items {
 		cursor := "  "
 		if i == w.cursor {
 			cursor = "▸ "
 		}
-		b.WriteString(fmt.Sprintf("%s%s\n", cursor, wf.Name))
+		lines[i] = fmt.Sprintf("%s%s", cursor, wf.Name)
 	}
-	b.WriteString("\n[Enter] configurer le lancement")
+	var b strings.Builder
+	b.WriteString(w.render(lines))
+	b.WriteString("\n\n[Enter] configurer le lancement")
 	return b.String()
 }

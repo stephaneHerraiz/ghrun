@@ -10,20 +10,27 @@ import (
 )
 
 type runs struct {
-	client   GHClient
-	repo     gh.RepoRef
-	limit    int
-	items    []gh.Run
-	cursor   int
-	loading  bool
-	interval time.Duration
+	client     GHClient
+	repo       gh.RepoRef
+	limit      int
+	items      []gh.Run
+	listScroll // cursor + vertical scroll window
+	loading    bool
+	interval   time.Duration
 }
 
-func newRuns(c GHClient, repo gh.RepoRef, limit int) (*runs, tea.Cmd) {
+func newRuns(c GHClient, repo gh.RepoRef, limit, pageSize int) (*runs, tea.Cmd) {
 	if limit <= 0 {
 		limit = 30
 	}
-	r := &runs{client: c, repo: repo, limit: limit, loading: true, interval: 4 * time.Second}
+	r := &runs{
+		client:     c,
+		repo:       repo,
+		limit:      limit,
+		listScroll: listScroll{pageSize: pageSize},
+		loading:    true,
+		interval:   4 * time.Second,
+	}
 	return r, loadRunsCmd(c, repo, limit)
 }
 
@@ -62,15 +69,16 @@ func (r *runs) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return r, func() tea.Msg { return errMsg{err: m.err} }
 		}
 		r.items = m.runs
-		if r.cursor >= len(r.items) {
-			r.cursor = 0 // keep the cursor in range after a reload
-		}
+		r.clampCursor(len(r.items)) // keep the cursor in range after a reload
 		return r, nil
 	case actionDoneMsg:
 		if m.err != nil {
 			return r, func() tea.Msg { return errMsg{err: m.err} }
 		}
 		return r, loadRunsCmd(r.client, r.repo, r.limit)
+	case tea.MouseMsg:
+		r.handleWheel(m, len(r.items))
+		return r, nil
 	case tea.KeyMsg:
 		return r.handleKey(m)
 	}
@@ -80,13 +88,9 @@ func (r *runs) Update(msg tea.Msg) (Screen, tea.Cmd) {
 func (r *runs) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 	switch m.String() {
 	case "up", "k":
-		if r.cursor > 0 {
-			r.cursor--
-		}
+		r.up()
 	case "down", "j":
-		if r.cursor < len(r.items)-1 {
-			r.cursor++
-		}
+		r.down(len(r.items))
 	case "g":
 		return r, loadRunsCmd(r.client, r.repo, r.limit)
 	case "enter":
@@ -111,6 +115,7 @@ func (r *runs) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 			return r, openWebCmd(r.client, r.repo, run.ID)
 		}
 	}
+	r.ensureVisible(len(r.items))
 	return r, nil
 }
 
@@ -121,15 +126,17 @@ func (r *runs) View() string {
 	if len(r.items) == 0 {
 		return "Aucun run."
 	}
-	var b strings.Builder
+	lines := make([]string, len(r.items))
 	for i, run := range r.items {
 		cursor := "  "
 		if i == r.cursor {
 			cursor = "▸ "
 		}
-		b.WriteString(fmt.Sprintf("%s%s %-18s %-16s %s\n",
-			cursor, statusIcon(run.Status, run.Conclusion), run.WorkflowName, run.HeadBranch, run.Title))
+		lines[i] = fmt.Sprintf("%s%s %-18s %-16s %s",
+			cursor, statusIcon(run.Status, run.Conclusion), run.WorkflowName, run.HeadBranch, run.Title)
 	}
-	b.WriteString("\n[Enter] détail  ·  r rerun  f rerun-failed  x cancel  o web  g refresh")
+	var b strings.Builder
+	b.WriteString(r.render(lines))
+	b.WriteString("\n\n[Enter] détail  ·  r rerun  f rerun-failed  x cancel  o web  g refresh")
 	return b.String()
 }

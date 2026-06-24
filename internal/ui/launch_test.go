@@ -1,11 +1,46 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
+
+func TestLaunchBranchListWindowsAndMouseScrolls(t *testing.T) {
+	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, nil, 3) // page size 3
+	branches := []string{"zzz0", "zzz1", "zzz2", "zzz3", "zzz4", "zzz5"}
+	s, _ := l.Update(branchesLoadedMsg{branches: branches})
+	l = s.(*launch)
+
+	v := l.View()
+	if strings.Count(v, "zzz") != 3 {
+		t.Fatalf("expected 3 branch rows shown (page size 3), got %d:\n%s", strings.Count(v, "zzz"), v)
+	}
+	if !strings.Contains(v, scrollThumb) {
+		t.Errorf("overflowing branch list should render a scrollbar; got:\n%s", v)
+	}
+
+	// Mouse wheel down scrolls the branch list.
+	for range 4 {
+		s, _ = l.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+		l = s.(*launch)
+	}
+	if l.branchList.cursor != 4 || l.branchList.offset != 2 {
+		t.Fatalf("cursor/offset = %d/%d after 4 wheel-down, want 4/2", l.branchList.cursor, l.branchList.offset)
+	}
+}
+
+func TestLaunchPreselectsDefaultBranch(t *testing.T) {
+	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, nil, 20)
+	// "main" is not first alphabetically, but should be pre-selected.
+	s, _ := l.Update(branchesLoadedMsg{branches: []string{"alpha", "main", "zeta"}})
+	l = s.(*launch)
+	if l.currentBranch() != "main" {
+		t.Fatalf("currentBranch = %q, want main (default pre-selected)", l.currentBranch())
+	}
+}
 
 func TestLaunchValidateFlagsRequiredEmpty(t *testing.T) {
 	inputs := []gh.Input{
@@ -13,7 +48,7 @@ func TestLaunchValidateFlagsRequiredEmpty(t *testing.T) {
 		{Name: "version", Type: gh.InputString, Default: "1.0.0"},
 		{Name: "token", Type: gh.InputString, Required: true}, // empty -> invalid
 	}
-	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs)
+	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs, 20)
 	// environment defaults to first option (staging) so it's satisfied; token is empty.
 	missing := l.validate()
 	if len(missing) != 1 || missing[0] != "token" {
@@ -26,7 +61,7 @@ func TestLaunchValuesUseDefaults(t *testing.T) {
 		{Name: "version", Type: gh.InputString, Default: "2.3.4"},
 		{Name: "dry_run", Type: gh.InputBoolean, Default: "true"},
 	}
-	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs)
+	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs, 20)
 	vals := l.values()
 	if vals["version"] != "2.3.4" || vals["dry_run"] != "true" {
 		t.Fatalf("values = %v", vals)
@@ -37,7 +72,7 @@ func TestLaunchChoiceDefaultsToFirstOption(t *testing.T) {
 	inputs := []gh.Input{
 		{Name: "env", Type: gh.InputChoice, Required: true, Options: []string{"staging", "production"}},
 	}
-	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs)
+	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs, 20)
 	if l.values()["env"] != "staging" {
 		t.Fatalf("choice default = %q, want staging", l.values()["env"])
 	}
@@ -49,7 +84,7 @@ func TestLaunchChoiceDefaultsToFirstOption(t *testing.T) {
 // None of these paths invoke the client synchronously, so a nil client is fine.
 func TestLaunchFindRunRetryHandler(t *testing.T) {
 	newSubmitting := func() *launch {
-		l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, nil)
+		l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, nil, 20)
 		l.phase = phaseSubmitting
 		return l
 	}
@@ -90,7 +125,7 @@ func TestLaunchFindRunRetryHandler(t *testing.T) {
 // all keys, so typing was impossible).
 func TestLaunchTextFieldReceivesKeys(t *testing.T) {
 	inputs := []gh.Input{{Name: "version", Type: gh.InputString}}
-	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs)
+	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs, 20)
 	l.phase = phaseInputs
 	l.focusCurrent()
 	// Type "1.2"
