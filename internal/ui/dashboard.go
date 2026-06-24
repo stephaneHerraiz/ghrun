@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
@@ -17,19 +18,26 @@ type repoStatus struct {
 	latest *gh.Run
 	active int
 	err    error
+	isOrg  bool // org repo (name only, no live status) vs. a favorite (live)
 }
 
 type dashboardLoadedMsg struct{ statuses []repoStatus }
 
 type dashboard struct {
-	client    GHClient
-	cfg       config.Config
-	favs      []gh.RepoRef
-	statuses  []repoStatus
-	cursor    int
-	filter    string
-	filtering bool
-	loading   bool
+	client     GHClient
+	cfg        config.Config
+	org        string // cfg.DefaultOrg: source for the listed org repos
+	favs       []gh.RepoRef
+	statuses   []repoStatus
+	orgRepos   []gh.RepoRef // org repos excluding favorites (name only)
+	cachePath  string
+	cursor     int
+	offset     int // index of the first displayed row (vertical scroll position)
+	filter     string
+	filtering  bool
+	loading    bool // favorites' live status loading
+	orgLoading bool // org repo list loading (cache + gh)
+	orgFetched bool // a fresh (non-cache) org repo result has been applied
 }
 
 // capturingInput reports whether the dashboard is in text-entry (filter) mode,
@@ -37,7 +45,8 @@ type dashboard struct {
 // global navigation shortcuts.
 func (d *dashboard) capturingInput() bool { return d.filtering }
 
-// newDashboard builds the dashboard from configured favorites.
+// newDashboard builds the dashboard from configured favorites plus the chosen
+// org's repositories (the hybrid multi-repo selector).
 func newDashboard(c GHClient, cfg config.Config) (*dashboard, tea.Cmd) {
 	var favs []gh.RepoRef
 	for _, s := range cfg.Favorites {
@@ -45,12 +54,75 @@ func newDashboard(c GHClient, cfg config.Config) (*dashboard, tea.Cmd) {
 			favs = append(favs, r)
 		}
 	}
-	d := &dashboard{client: c, cfg: cfg, favs: favs, loading: true}
+	cachePath, _ := config.ResolveCachePath() // "" on failure: cache simply disabled
+	d := &dashboard{
+		client:     c,
+		cfg:        cfg,
+		org:        cfg.DefaultOrg,
+		favs:       favs,
+		cachePath:  cachePath,
+		loading:    true,
+		orgLoading: cfg.DefaultOrg != "",
+	}
 	return d, d.initCmd()
 }
 
 func (d *dashboard) initCmd() tea.Cmd {
-	return d.loadCmd()
+	cmds := []tea.Cmd{d.loadCmd()}
+	if d.org != "" {
+		cmds = append(cmds, loadCachedOrgReposCmd(d.cachePath), loadOrgReposCmd(d.client, d.org, d.cachePath))
+	}
+	return tea.Batch(cmds...)
+}
+
+// refreshOrgReposCmd re-fetches the org repos from gh (used by manual refresh).
+func (d *dashboard) refreshOrgReposCmd() tea.Cmd {
+	if d.org == "" {
+		return nil
+	}
+	return loadOrgReposCmd(d.client, d.org, d.cachePath)
+}
+
+// dedupOrgRepos drops org repos already pinned as favorites and sorts the rest.
+func (d *dashboard) dedupOrgRepos(repos []gh.RepoRef) []gh.RepoRef {
+	favSet := make(map[string]bool, len(d.favs))
+	for _, f := range d.favs {
+		favSet[f.String()] = true
+	}
+	out := make([]gh.RepoRef, 0, len(repos))
+	for _, r := range repos {
+		if !favSet[r.String()] {
+			out = append(out, r)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
+}
+
+// pageSize is the max number of repo rows shown at once (configurable).
+func (d *dashboard) pageSize() int {
+	n := d.cfg.DashboardPageSize
+	if n < 1 {
+		n = 20
+	}
+	return n
+}
+
+// clampOffset keeps a scroll offset within [0, total-page].
+func clampOffset(off, page, total int) int {
+	return max(0, min(off, max(0, total-page)))
+}
+
+// ensureVisible scrolls the window so the cursor row stays in view.
+func (d *dashboard) ensureVisible() {
+	page := d.pageSize()
+	total := len(d.visible())
+	if d.cursor < d.offset {
+		d.offset = d.cursor
+	} else if d.cursor >= d.offset+page {
+		d.offset = d.cursor - page + 1
+	}
+	d.offset = clampOffset(d.offset, page, total)
 }
 
 func (d *dashboard) interval() time.Duration {
@@ -118,12 +190,24 @@ func (d *dashboard) anyActive() bool {
 	return false
 }
 
+// allRows is the unified, ordered selectable list: favorites (with live status)
+// first, then org repos (name only).
+func (d *dashboard) allRows() []repoStatus {
+	rows := make([]repoStatus, 0, len(d.statuses)+len(d.orgRepos))
+	rows = append(rows, d.statuses...)
+	for _, r := range d.orgRepos {
+		rows = append(rows, repoStatus{repo: r, isOrg: true})
+	}
+	return rows
+}
+
 func (d *dashboard) visible() []repoStatus {
+	all := d.allRows()
 	if d.filter == "" {
-		return d.statuses
+		return all
 	}
 	var out []repoStatus
-	for _, s := range d.statuses {
+	for _, s := range all {
 		if strings.Contains(strings.ToLower(s.repo.String()), strings.ToLower(d.filter)) {
 			out = append(out, s)
 		}
@@ -147,6 +231,45 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		})
 		if n := len(d.visible()); d.cursor >= n {
 			d.cursor = 0
+		}
+		d.ensureVisible()
+		return d, nil
+	case orgReposLoadedMsg:
+		if !m.fromCache {
+			d.orgLoading = false
+		}
+		if m.err != nil {
+			// Keep whatever (cached) list we have; surface the error in the footer.
+			err := m.err
+			return d, func() tea.Msg { return errMsg{err: fmt.Errorf("listing repos for %s: %w", d.org, err)} }
+		}
+		// A slow, stale cache read must not clobber a fresh gh result — even an
+		// empty one (org legitimately has no non-favorite repos), so freshness is
+		// tracked by orgFetched, not by the current list length.
+		if m.fromCache && d.orgFetched {
+			return d, nil
+		}
+		if !m.fromCache {
+			d.orgFetched = true
+		}
+		d.orgRepos = d.dedupOrgRepos(m.repos)
+		if n := len(d.visible()); d.cursor >= n {
+			d.cursor = 0
+		}
+		d.ensureVisible()
+		return d, nil
+	case tea.MouseMsg:
+		switch m.Button {
+		case tea.MouseButtonWheelUp:
+			if d.cursor > 0 {
+				d.cursor--
+			}
+			d.ensureVisible()
+		case tea.MouseButtonWheelDown:
+			if d.cursor < len(d.visible())-1 {
+				d.cursor++
+			}
+			d.ensureVisible()
 		}
 		return d, nil
 	case tea.KeyMsg:
@@ -193,6 +316,7 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 				d.cursor++
 			}
 		}
+		d.ensureVisible()
 		return d, nil
 	}
 
@@ -207,7 +331,7 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 			d.cursor++
 		}
 	case "g":
-		return d, d.loadCmd()
+		return d, tea.Batch(d.loadCmd(), d.refreshOrgReposCmd())
 	case "enter":
 		if d.cursor < len(vis) {
 			repo := vis[d.cursor].repo
@@ -216,6 +340,7 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 	case "/":
 		d.filtering = true
 	}
+	d.ensureVisible()
 	return d, nil
 }
 
@@ -223,37 +348,83 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 type enterRepoMsg struct{ repo gh.RepoRef }
 
 func (d *dashboard) View() string {
-	if d.loading && len(d.statuses) == 0 {
-		return "Chargement des favoris…"
-	}
-	if len(d.favs) == 0 {
+	rows := d.visible()
+	if len(rows) == 0 {
+		if d.loading || d.orgLoading {
+			return "Chargement des repos…"
+		}
+		if d.filter != "" {
+			return "Aucun repo ne correspond au filtre « " + d.filter + " ».\n[esc] effacer le filtre"
+		}
+		if d.org != "" {
+			return fmt.Sprintf("Aucun repo pour %s.\nAjoute des favoris dans ~/.config/ghrun/config.yaml (clé favorites) ou appuie sur [g] pour rafraîchir.", d.org)
+		}
 		return "Aucun favori configuré.\nÉditez ~/.config/ghrun/config.yaml (clé favorites)."
 	}
+	// Window the rows to pageSize and follow the cursor.
+	page := d.pageSize()
+	total := len(rows)
+	win := min(page, total)
+	offset := clampOffset(d.offset, page, total)
+	window := rows[offset : offset+win]
+	bar := scrollbarGlyphs(total, win, offset)
+
+	// Build the row lines and a parallel scrollbar column (one glyph per row;
+	// the org separator line gets a track glyph so the bar stays continuous).
+	var rowLines, barLines []string
+	sepDone := false
+	for c, s := range window {
+		if s.isOrg && !sepDone {
+			rowLines = append(rowLines, footerStyle.Render(fmt.Sprintf("  ── repos de %s ──", d.org)))
+			if bar != nil {
+				barLines = append(barLines, styleGlyph(scrollTrack))
+			}
+			sepDone = true
+		}
+		rowLines = append(rowLines, d.rowLine(s, offset+c == d.cursor))
+		if bar != nil {
+			barLines = append(barLines, styleGlyph(bar[c]))
+		}
+	}
+
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-40s %-26s %-8s %s\n", "REPO", "DERNIER RUN", "ÉTAT", "ACTIFS"))
-	for i, s := range d.visible() {
-		cursor := "  "
-		if i == d.cursor {
-			cursor = "▸ "
-		}
-		last, state := "—", "—"
-		if s.err != nil {
-			last, state = "erreur", "!"
-		} else if s.latest != nil {
-			last = fmt.Sprintf("%s · %s", s.latest.WorkflowName, s.latest.HeadBranch)
-			state = statusIcon(s.latest.Status, s.latest.Conclusion)
-		}
-		active := "–"
-		if s.active > 0 {
-			active = fmt.Sprintf("%d", s.active)
-		}
-		b.WriteString(fmt.Sprintf("%s%-40s %-26s %-8s %s\n", cursor, s.repo.String(), last, state, active))
+	fmt.Fprintf(&b, "%-40s %-26s %-8s %s\n", "REPO", "DERNIER RUN", "ÉTAT", "ACTIFS")
+	list := strings.Join(rowLines, "\n")
+	if bar != nil {
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, list, "  ", strings.Join(barLines, "\n")))
+	} else {
+		b.WriteString(list)
+	}
+	b.WriteByte('\n')
+	if total > win {
+		fmt.Fprintln(&b, footerStyle.Render(fmt.Sprintf("repos %d–%d / %d", offset+1, offset+win, total)))
 	}
 	if d.filtering {
-		b.WriteString("\nfiltre: " + d.filter + "▌")
+		b.WriteString("filtre: " + d.filter + "▌\n")
 	} else if d.filter != "" {
-		b.WriteString("\nfiltre: " + d.filter)
+		b.WriteString("filtre: " + d.filter + "\n")
 	}
-	b.WriteString("\n[Enter] entrer  ·  [g] refresh  ·  [/] filtrer")
+	b.WriteString("[Enter] entrer  ·  [g] refresh  ·  [/] filtrer")
 	return b.String()
+}
+
+// rowLine renders one repo row (a favorite with live status, or a name-only org
+// repo which shows placeholder dashes in the status columns).
+func (d *dashboard) rowLine(s repoStatus, selected bool) string {
+	cursor := "  "
+	if selected {
+		cursor = "▸ "
+	}
+	last, state := "—", "—"
+	if s.err != nil {
+		last, state = "erreur", "!"
+	} else if s.latest != nil {
+		last = fmt.Sprintf("%s · %s", s.latest.WorkflowName, s.latest.HeadBranch)
+		state = statusIcon(s.latest.Status, s.latest.Conclusion)
+	}
+	active := "–"
+	if s.active > 0 {
+		active = fmt.Sprintf("%d", s.active)
+	}
+	return fmt.Sprintf("%s%-40s %-26s %-8s %s", cursor, s.repo.String(), last, state, active)
 }

@@ -14,7 +14,8 @@ type Config struct {
 	DefaultOrg             string   `yaml:"defaultOrg"`
 	RefreshIntervalSeconds int      `yaml:"refreshIntervalSeconds"`
 	RunListLimit           int      `yaml:"runListLimit"`
-	Favorites              []string `yaml:"favorites"` // "owner/name"
+	DashboardPageSize      int      `yaml:"dashboardPageSize"` // max repo rows shown at once
+	Favorites              []string `yaml:"favorites"`         // "owner/name"
 }
 
 // Default returns the baseline configuration.
@@ -22,6 +23,7 @@ func Default() Config {
 	return Config{
 		RefreshIntervalSeconds: 4,
 		RunListLimit:           30,
+		DashboardPageSize:      20,
 	}
 }
 
@@ -33,6 +35,9 @@ func applyDefaults(c Config) Config {
 	}
 	if c.RunListLimit == 0 {
 		c.RunListLimit = d.RunListLimit
+	}
+	if c.DashboardPageSize == 0 {
+		c.DashboardPageSize = d.DashboardPageSize
 	}
 	return c
 }
