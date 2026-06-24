@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
@@ -30,6 +31,33 @@ func TestAggregateRepoStatusEmpty(t *testing.T) {
 	st := aggregateRepoStatus(gh.RepoRef{Owner: "o", Name: "r"}, nil)
 	if st.latest != nil || st.active != 0 {
 		t.Errorf("empty repo status = %+v", st)
+	}
+}
+
+func TestAggregateRepoStatusIgnoresSkippedForLatest(t *testing.T) {
+	repo := gh.RepoRef{Owner: "o", Name: "r"}
+	// Most recent runs were skipped (path-filtered / conditionally skipped);
+	// the "last run" should be the most recent run that actually ran.
+	runs := []gh.Run{
+		{ID: 5, Status: "completed", Conclusion: "skipped", WorkflowName: "CI"},
+		{ID: 4, Status: "completed", Conclusion: "skipped", WorkflowName: "CI"},
+		{ID: 3, Status: "completed", Conclusion: "success", WorkflowName: "Deploy"},
+	}
+	st := aggregateRepoStatus(repo, runs)
+	if st.latest == nil || st.latest.ID != 3 {
+		t.Fatalf("latest = %+v, want the most recent non-skipped run (id 3)", st.latest)
+	}
+}
+
+func TestAggregateRepoStatusAllSkippedHasNoLatest(t *testing.T) {
+	repo := gh.RepoRef{Owner: "o", Name: "r"}
+	runs := []gh.Run{
+		{ID: 2, Status: "completed", Conclusion: "skipped"},
+		{ID: 1, Status: "completed", Conclusion: "skipped"},
+	}
+	st := aggregateRepoStatus(repo, runs)
+	if st.latest != nil {
+		t.Fatalf("latest = %+v, want nil when every run was skipped", st.latest)
 	}
 }
 
@@ -275,6 +303,63 @@ func TestDashboardToggleFavoriteRemovesAndPersists(t *testing.T) {
 	if !batchEmitsFavorites(cmd, []string{}) {
 		t.Fatal("un-favorite should emit favoritesChangedMsg with the updated (empty) favorites")
 	}
+}
+
+func TestDashLayoutForFallsBackWhenWidthUnknown(t *testing.T) {
+	L := dashLayoutFor(0, false)
+	if L.repo != 40 || L.last != 26 {
+		t.Fatalf("fallback layout = %+v, want repo 40 / last 26", L)
+	}
+}
+
+func TestDashLayoutForFillsWidthExactly(t *testing.T) {
+	const w = 120
+	for _, scrollbar := range []bool{false, true} {
+		L := dashLayoutFor(w, scrollbar)
+		gutter := 0
+		if scrollbar {
+			gutter = 3
+		}
+		// cursor(2) + repo + gap + last + gap + state + gap + active + gutter
+		total := 2 + L.repo + 1 + L.last + 1 + L.state + 1 + L.active + gutter
+		if total != w {
+			t.Fatalf("scrollbar=%v: columns sum to %d, want exactly %d (layout=%+v)", scrollbar, total, w, L)
+		}
+	}
+}
+
+func TestDashLayoutForNarrowRespectsFloorsNotWideDefaults(t *testing.T) {
+	L := dashLayoutFor(30, true)
+	if L.repo < dashRepoMin || L.last < dashLastMin {
+		t.Fatalf("narrow layout must respect column floors; got %+v", L)
+	}
+	// A known-but-narrow width must NOT fall back to the wide w=0 defaults,
+	// which would overflow the terminal.
+	if L.repo >= 40 || L.last >= 26 {
+		t.Fatalf("narrow layout = %+v, must clamp to floors, not the wide defaults", L)
+	}
+}
+
+func TestDashboardViewFillsTerminalWidth(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", Favorites: []string{"acme/fav"}})
+	sc, _ := d.Update(dashboardLoadedMsg{statuses: []repoStatus{{repo: gh.RepoRef{Owner: "acme", Name: "fav"}}}})
+	d = sc.(*dashboard)
+	// Deliver a wide terminal size, as the app does when the screen becomes visible.
+	sc, _ = d.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	d = sc.(*dashboard)
+
+	v := d.View()
+	// A single favorite does not overflow the page, so no scrollbar is drawn and
+	// the row must fill the terminal width exactly (140).
+	for line := range strings.SplitSeq(v, "\n") {
+		if strings.Contains(line, "acme/fav") {
+			if w := lipgloss.Width(line); w != 140 {
+				t.Fatalf("repo row width = %d, want exactly 140 (full terminal width)\nline=%q", w, line)
+			}
+			return
+		}
+	}
+	t.Fatalf("did not find the favorite row in:\n%s", v)
 }
 
 func countThumb(g []string) int {

@@ -13,3 +13,18 @@ func (s stubScreen) Title() string                    { return s.title }
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
+
+// sizeRecordingScreen records the last terminal size delivered to it, so tests
+// can assert the app propagates the window size to screens.
+type sizeRecordingScreen struct {
+	gotWidth, gotHeight int
+}
+
+func (s *sizeRecordingScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
+	if m, ok := msg.(tea.WindowSizeMsg); ok {
+		s.gotWidth, s.gotHeight = m.Width, m.Height
+	}
+	return s, nil
+}
+func (s *sizeRecordingScreen) View() string  { return "sized" }
+func (s *sizeRecordingScreen) Title() string { return "sized" }
