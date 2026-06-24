@@ -42,6 +42,38 @@ func TestLaunchPreselectsDefaultBranch(t *testing.T) {
 	}
 }
 
+// TestLaunchEnterSubmits guards the fix for ctrl+s being swallowed by terminal
+// flow control: Enter must launch the workflow (reliable in every terminal).
+func TestLaunchEnterSubmits(t *testing.T) {
+	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, nil, 20)
+	l.phase = phaseInputs
+	s, cmd := l.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	l = s.(*launch)
+	if l.phase != phaseSubmitting {
+		t.Fatalf("phase = %v after Enter, want phaseSubmitting", l.phase)
+	}
+	if cmd == nil {
+		t.Fatal("Enter should return a dispatch command")
+	}
+}
+
+// TestLaunchEnterBlockedByMissingRequired verifies Enter still routes through
+// validation: a missing required field blocks the launch instead of dispatching.
+func TestLaunchEnterBlockedByMissingRequired(t *testing.T) {
+	inputs := []gh.Input{{Name: "token", Type: gh.InputString, Required: true}}
+	l, _ := newLaunch(nil, gh.RepoRef{Owner: "o", Name: "r"}, gh.Workflow{ID: 1}, inputs, 20)
+	l.phase = phaseInputs
+	l.focusCurrent()
+	s, _ := l.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	l = s.(*launch)
+	if l.phase != phaseInputs {
+		t.Fatalf("phase = %v, want phaseInputs (blocked by missing field)", l.phase)
+	}
+	if len(l.missing) != 1 || l.missing[0] != "token" {
+		t.Fatalf("missing = %v, want [token]", l.missing)
+	}
+}
+
 func TestLaunchValidateFlagsRequiredEmpty(t *testing.T) {
 	inputs := []gh.Input{
 		{Name: "environment", Type: gh.InputChoice, Required: true, Options: []string{"staging", "production"}},
