@@ -22,14 +22,20 @@ type repoStatus struct {
 type dashboardLoadedMsg struct{ statuses []repoStatus }
 
 type dashboard struct {
-	client   GHClient
-	cfg      config.Config
-	favs     []gh.RepoRef
-	statuses []repoStatus
-	cursor   int
-	filter   string
-	loading  bool
+	client    GHClient
+	cfg       config.Config
+	favs      []gh.RepoRef
+	statuses  []repoStatus
+	cursor    int
+	filter    string
+	filtering bool
+	loading   bool
 }
+
+// capturingInput reports whether the dashboard is in text-entry (filter) mode,
+// so the app shell can route raw keystrokes here instead of treating them as
+// global navigation shortcuts.
+func (d *dashboard) capturingInput() bool { return d.filtering }
 
 // newDashboard builds the dashboard from configured favorites.
 func newDashboard(c GHClient, cfg config.Config) (*dashboard, tea.Cmd) {
@@ -126,6 +132,9 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			}
 			return d.statuses[i].repo.String() < d.statuses[j].repo.String()
 		})
+		if n := len(d.visible()); d.cursor >= n {
+			d.cursor = 0
+		}
 		return d, nil
 	case tickMsg:
 		// Keep polling while something is active; otherwise slow down.
@@ -142,6 +151,46 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 
 func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 	vis := d.visible()
+
+	if d.filtering {
+		switch m.Type {
+		case tea.KeyEsc:
+			// Exit filter mode and clear the filter.
+			d.filtering = false
+			d.filter = ""
+			d.cursor = 0
+		case tea.KeyEnter:
+			// Confirm: exit filter mode, keep the filter, emit enterRepoMsg if a row is selected.
+			d.filtering = false
+			if d.cursor < len(vis) {
+				repo := vis[d.cursor].repo
+				return d, func() tea.Msg { return enterRepoMsg{repo: repo} }
+			}
+		case tea.KeyBackspace:
+			if len(d.filter) > 0 {
+				runes := []rune(d.filter)
+				d.filter = string(runes[:len(runes)-1])
+				d.cursor = 0
+			}
+		case tea.KeyRunes:
+			if len(m.Runes) == 1 {
+				d.filter += string(m.Runes)
+				d.cursor = 0
+			}
+		case tea.KeyUp:
+			if d.cursor > 0 {
+				d.cursor--
+			}
+		case tea.KeyDown:
+			vis = d.visible() // recompute after any filter change
+			if d.cursor < len(vis)-1 {
+				d.cursor++
+			}
+		}
+		return d, nil
+	}
+
+	// Normal (non-filtering) mode.
 	switch m.String() {
 	case "up", "k":
 		if d.cursor > 0 {
@@ -159,8 +208,7 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 			return d, func() tea.Msg { return enterRepoMsg{repo: repo} }
 		}
 	case "/":
-		// Minimal inline filter: append next runes. For brevity, toggle a prompt.
-		// (A fuller implementation can embed bubbles/textinput.)
+		d.filtering = true
 	}
 	return d, nil
 }
@@ -195,9 +243,11 @@ func (d *dashboard) View() string {
 		}
 		b.WriteString(fmt.Sprintf("%s%-40s %-26s %-8s %s\n", cursor, s.repo.String(), last, state, active))
 	}
-	if d.filter != "" {
+	if d.filtering {
+		b.WriteString("\nfiltre: " + d.filter + "▌")
+	} else if d.filter != "" {
 		b.WriteString("\nfiltre: " + d.filter)
 	}
-	b.WriteString("\n[Enter] entrer  ·  [g] refresh")
+	b.WriteString("\n[Enter] entrer  ·  [g] refresh  ·  [/] filtrer")
 	return b.String()
 }
