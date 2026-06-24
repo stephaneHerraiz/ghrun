@@ -27,19 +27,15 @@ func TestRunsLoadedAndEnter(t *testing.T) {
 	}
 }
 
-func TestRunsActiveTickReloadsAndResustains(t *testing.T) {
+func TestRunsRefresh(t *testing.T) {
 	r, _ := newRuns(nil, gh.RepoRef{Owner: "o", Name: "r"}, 30)
-	// Loading runs must NOT emit its own tick — the ticker self-sustains from
-	// newRuns, so loaded returning a tick too would double-poll.
-	s, loadedCmd := r.Update(runsLoadedMsg{runs: []gh.Run{{ID: 1, Status: "in_progress"}}})
-	if loadedCmd != nil {
-		t.Fatal("runsLoadedMsg must not emit a tick (would double-poll)")
+	// idle (no items) → no reload, slow interval
+	if cmd, d := r.refresh(); cmd != nil || d < 10*time.Second {
+		t.Fatalf("idle refresh = (cmd!=nil:%v, %v), want (nil, slow >=10s)", cmd != nil, d)
 	}
-	rs := s.(*runs)
-	// A tick while runs are active keeps the single chain alive: it reloads and
-	// re-ticks, so the returned command is non-nil.
-	_, tickCmdResult := rs.Update(tickMsg(time.Time{}))
-	if tickCmdResult == nil {
-		t.Fatal("a tick with active runs should reload + re-tick")
+	// active → reload + fast interval
+	r.items = []gh.Run{{ID: 1, Status: "in_progress"}}
+	if cmd, d := r.refresh(); cmd == nil || d > 10*time.Second {
+		t.Fatalf("active refresh = (cmd!=nil:%v, %v), want (non-nil, fast)", cmd != nil, d)
 	}
 }

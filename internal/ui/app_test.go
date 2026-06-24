@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
@@ -66,6 +67,20 @@ func TestErrMsgSetsFooterError(t *testing.T) {
 	got := model.(App)
 	if !strings.Contains(got.View(), "boom") {
 		t.Fatalf("view missing error; view=\n%s", got.View())
+	}
+}
+
+func TestAppTickReArmsAndRefreshesTop(t *testing.T) {
+	a := newTestApp() // dashboard (a refresher) on the stack
+	_, cmd := a.Update(tickMsg(time.Time{}))
+	if cmd == nil {
+		t.Fatal("app tick must re-arm the single ticker")
+	}
+	// A non-refresher top (stubScreen) must still keep the ticker alive.
+	a.push(stubScreen{"x"})
+	_, cmd = a.Update(tickMsg(time.Time{}))
+	if cmd == nil {
+		t.Fatal("app tick must re-arm even when top is not a refresher")
 	}
 }
 

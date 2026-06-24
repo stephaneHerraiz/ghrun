@@ -50,11 +50,24 @@ func newDashboard(c GHClient, cfg config.Config) (*dashboard, tea.Cmd) {
 }
 
 func (d *dashboard) initCmd() tea.Cmd {
-	return tea.Batch(d.loadCmd(), tickCmd(d.interval()))
+	return d.loadCmd()
 }
 
 func (d *dashboard) interval() time.Duration {
-	return time.Duration(d.cfg.RefreshIntervalSeconds) * time.Second
+	s := d.cfg.RefreshIntervalSeconds
+	if s < 1 {
+		s = 4
+	}
+	return time.Duration(s) * time.Second
+}
+
+// refresh reloads the favorites' statuses while any run is active; driven by the
+// app's single ticker. Returns nil + a slow interval when nothing is active.
+func (d *dashboard) refresh() (tea.Cmd, time.Duration) {
+	if d.anyActive() {
+		return d.loadCmd(), d.interval()
+	}
+	return nil, 15 * time.Second
 }
 
 // loadCmd fans out ListRuns over all favorites concurrently.
@@ -136,13 +149,6 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			d.cursor = 0
 		}
 		return d, nil
-	case tickMsg:
-		// Keep polling while something is active; otherwise slow down.
-		next := d.interval()
-		if !d.anyActive() {
-			next = 15 * time.Second
-		}
-		return d, tea.Batch(d.loadCmd(), tickCmd(next))
 	case tea.KeyMsg:
 		return d.handleKey(m)
 	}

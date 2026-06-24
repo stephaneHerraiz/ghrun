@@ -20,12 +20,21 @@ type rundetail struct {
 
 func newRunDetail(c GHClient, repo gh.RepoRef, id int64) (*rundetail, tea.Cmd) {
 	d := &rundetail{client: c, repo: repo, id: id, interval: 4 * time.Second}
-	return d, tea.Batch(loadRunDetailCmd(c, repo, id), tickCmd(d.interval))
+	return d, loadRunDetailCmd(c, repo, id)
 }
 
 func (d *rundetail) Title() string { return fmt.Sprintf("run #%d", d.id) }
 
 func (d *rundetail) active() bool { return d.loaded && d.detail.Run.Active() }
+
+// refresh reloads the run detail while the run is active; driven by the app's
+// single ticker. Returns nil + a slow interval once the run is no longer active.
+func (d *rundetail) refresh() (tea.Cmd, time.Duration) {
+	if d.active() {
+		return loadRunDetailCmd(d.client, d.repo, d.id), d.interval
+	}
+	return nil, 15 * time.Second
+}
 
 func (d *rundetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch m := msg.(type) {
@@ -36,20 +45,7 @@ func (d *rundetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		d.detail = m.detail
 		d.detail.Run.ID = d.id
 		d.loaded = true
-		// Do not start a tick here: a single self-sustaining tick chain is
-		// born in newRunDetail. Emitting one here too would double-poll.
 		return d, nil
-	case tickMsg:
-		// Single self-sustaining ticker: reload only while active, slow down
-		// (but keep ticking) when idle so polling resumes if a rerun reactivates.
-		next := d.interval
-		var reload tea.Cmd
-		if d.active() {
-			reload = loadRunDetailCmd(d.client, d.repo, d.id)
-		} else {
-			next = 15 * time.Second
-		}
-		return d, tea.Batch(reload, tickCmd(next))
 	case actionDoneMsg:
 		if m.err != nil {
 			return d, func() tea.Msg { return errMsg{err: m.err} }

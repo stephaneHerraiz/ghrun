@@ -9,11 +9,9 @@ import (
 
 // Navigation messages handled by the root App.
 type pushMsg struct{ screen Screen }
-type popMsg struct{}
 type gotoReposMsg struct{}
 type gotoWorkflowsMsg struct{}
 type gotoRunsMsg struct{}
-type setRepoMsg struct{ repo gh.RepoRef }
 
 // errMsg carries a non-fatal gh error for the footer.
 type errMsg struct{ err error }

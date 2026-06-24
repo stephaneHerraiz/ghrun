@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
@@ -11,6 +12,10 @@ import (
 // inputCapturer is implemented by screens that consume raw keystrokes (e.g. a
 // filter box), so the app shell must not treat those keys as global shortcuts.
 type inputCapturer interface{ capturingInput() bool }
+
+// errBannerTTL is how long a non-fatal error stays in the footer before it
+// auto-clears.
+const errBannerTTL = 6 * time.Second
 
 // App is the root Bubbletea model: it owns the screen stack and global chrome.
 type App struct {
@@ -32,12 +37,22 @@ func NewApp(c GHClient, cfg config.Config) App {
 	return a
 }
 
-// Init kicks off the dashboard's initial load and tick.
-func (a App) Init() tea.Cmd {
-	if d, ok := a.top().(*dashboard); ok {
-		return d.initCmd()
+// tickInterval is the app's base polling cadence, floored for safety.
+func (a App) tickInterval() time.Duration {
+	s := a.cfg.RefreshIntervalSeconds
+	if s < 1 {
+		s = 4
 	}
-	return nil
+	return time.Duration(s) * time.Second
+}
+
+// Init kicks off the dashboard's initial load and starts the single app ticker.
+func (a App) Init() tea.Cmd {
+	var initCmd tea.Cmd
+	if d, ok := a.top().(*dashboard); ok {
+		initCmd = d.initCmd()
+	}
+	return tea.Batch(initCmd, tickCmd(a.tickInterval()))
 }
 
 // push appends a screen to the top of the stack.
@@ -122,24 +137,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pushMsg:
 		a.push(m.screen)
 		return a, nil
-	case popMsg:
-		a.pop()
-		return a, nil
-	case setRepoMsg:
-		r := m.repo
-		a.repo = &r
-		return a, nil
 	case enterRepoMsg:
 		repo := m.repo
 		a.repo = &repo
 		runs, cmd := newRuns(a.client, repo, a.cfg.RunListLimit)
 		a.push(runs)
 		return a, cmd
-	case gotoReposMsg, gotoWorkflowsMsg, gotoRunsMsg:
-		return a.handleGoto(msg)
+	case tickMsg:
+		// The app owns the single ticker: only the top screen refreshes, so buried
+		// screens' chains can't multiply onto the top screen and over-poll gh.
+		next := a.tickInterval()
+		var reload tea.Cmd
+		if r, ok := a.top().(refresher); ok {
+			reload, next = r.refresh()
+		}
+		if next < time.Second {
+			next = time.Second
+		}
+		return a, tea.Batch(reload, tickCmd(next))
 	case errMsg:
 		if m.err != nil {
 			a.errText = m.err.Error()
+			return a, tea.Tick(errBannerTTL, func(time.Time) tea.Msg { return clearErrMsg{} })
 		}
 		return a, nil
 	case clearErrMsg:
@@ -200,9 +219,20 @@ func (a App) breadcrumb() string {
 	return strings.Join(parts, " › ")
 }
 
-// footer renders the key-hint line with an optional error banner.
+// footer renders the key-hint line with an optional error banner. When help is
+// toggled (?), it expands into a multi-line key reference.
 func (a App) footer() string {
-	keys := "[W]orkflows  [U] runs  [R]epos  ·  esc back  ?  help  q quit"
+	var keys string
+	if a.showHelp {
+		keys = strings.Join([]string{
+			"Navigation : [W] workflows · [U] runs · [R] repos (accueil) · esc retour · q quitter",
+			"Listes : ↑/↓ déplacer · Enter ouvrir · / filtrer (accueil)",
+			"Runs : r relancer · f relancer échecs · x annuler · o ouvrir web · l logs · g rafraîchir",
+			"? masquer l'aide",
+		}, "\n")
+	} else {
+		keys = "[W]orkflows  [U] runs  [R]epos  ·  esc back  ?  help  q quit"
+	}
 	if a.errText != "" {
 		return errStyle.Render("⚠ "+a.errText) + "\n" + footerStyle.Render(keys)
 	}
