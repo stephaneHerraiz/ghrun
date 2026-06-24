@@ -52,6 +52,10 @@ func (l *logs) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		var cmd tea.Cmd
 		l.vp, cmd = l.vp.Update(msg)
 		return l, cmd
+	case tea.MouseMsg:
+		var cmd tea.Cmd
+		l.vp, cmd = l.vp.Update(msg)
+		return l, cmd
 	}
 	return l, nil
 }

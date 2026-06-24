@@ -266,6 +266,37 @@ func TestDashboardWindowsAndScrollsWithCursor(t *testing.T) {
 	}
 }
 
+func TestDashboardMouseWheelScrollsList(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", DashboardPageSize: 3})
+	repos := []gh.RepoRef{
+		{Owner: "acme", Name: "r0"}, {Owner: "acme", Name: "r1"}, {Owner: "acme", Name: "r2"},
+		{Owner: "acme", Name: "r3"}, {Owner: "acme", Name: "r4"}, {Owner: "acme", Name: "r5"},
+	}
+	sc, _ := d.Update(orgReposLoadedMsg{repos: repos})
+	d = sc.(*dashboard)
+
+	// Wheel down 4 notches → cursor follows and the window scrolls.
+	for range 4 {
+		sc, _ = d.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+		d = sc.(*dashboard)
+	}
+	if d.cursor != 4 {
+		t.Fatalf("cursor = %d after 4 wheel-down, want 4", d.cursor)
+	}
+	if d.offset != 2 {
+		t.Fatalf("offset = %d, want 2 (window follows cursor)", d.offset)
+	}
+
+	// Wheel up 4 notches → back to the top.
+	for range 4 {
+		sc, _ = d.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp})
+		d = sc.(*dashboard)
+	}
+	if d.cursor != 0 || d.offset != 0 {
+		t.Fatalf("cursor/offset = %d/%d after wheel-up, want 0/0", d.cursor, d.offset)
+	}
+}
+
 func TestDashboardCursorClampedAfterLoad(t *testing.T) {
 	d, _ := newDashboard(nil, config.Config{Favorites: []string{}})
 	d.cursor = 2

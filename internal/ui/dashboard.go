@@ -258,6 +258,20 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		}
 		d.ensureVisible()
 		return d, nil
+	case tea.MouseMsg:
+		switch m.Button {
+		case tea.MouseButtonWheelUp:
+			if d.cursor > 0 {
+				d.cursor--
+			}
+			d.ensureVisible()
+		case tea.MouseButtonWheelDown:
+			if d.cursor < len(d.visible())-1 {
+				d.cursor++
+			}
+			d.ensureVisible()
+		}
+		return d, nil
 	case tea.KeyMsg:
 		return d.handleKey(m)
 	}
