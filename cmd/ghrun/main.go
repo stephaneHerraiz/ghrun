@@ -1,9 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 func version() string { return "ghrun dev" }
 
 func main() {
-	fmt.Println(version())
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
