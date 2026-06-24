@@ -1,10 +1,10 @@
 # ghrun
 
-**ghrun** est un CLI interactif (TUI) pour **lancer** et **suivre** des workflows
-GitHub Actions sur plusieurs dépôts, sans quitter le terminal. Il s'appuie sur le
-CLI `gh` déjà authentifié — aucune configuration de token à gérer.
+**ghrun** is an interactive terminal UI (TUI) to **launch** and **monitor** GitHub
+Actions workflows across multiple repositories, without leaving your terminal. It
+builds on your already-authenticated `gh` CLI — no token to configure.
 
-Écrit en Go avec [Bubbletea](https://github.com/charmbracelet/bubbletea).
+Written in Go with [Bubbletea](https://github.com/charmbracelet/bubbletea).
 
 ```
 ghrun › owner/repo › Workflows › launch: deploy.yml
@@ -12,58 +12,58 @@ ghrun › owner/repo › Workflows › launch: deploy.yml
 
 ---
 
-## Sommaire
+## Table of contents
 
-- [Aperçu](#aperçu)
-- [Prérequis](#prérequis)
+- [Overview](#overview)
+- [Requirements](#requirements)
 - [Installation](#installation)
-- [Premier lancement](#premier-lancement)
-- [Les écrans](#les-écrans)
-- [Raccourcis clavier](#raccourcis-clavier)
-- [Fonctionnalités](#fonctionnalités)
+- [First run](#first-run)
+- [Screens](#screens)
+- [Keybindings](#keybindings)
+- [Features](#features)
 - [Configuration](#configuration)
-- [Comment ghrun parle à GitHub](#comment-ghrun-parle-à-github)
-- [Hors périmètre](#hors-périmètre)
+- [How ghrun talks to GitHub](#how-ghrun-talks-to-github)
+- [Out of scope](#out-of-scope)
+- [License](#license)
 
 ---
 
-## Aperçu
+## Overview
 
-Deux usages à parts égales :
+Two equally-weighted use cases:
 
-- **Lancer** un workflow `workflow_dispatch` : ghrun lit les `inputs` directement
-  dans le YAML du workflow et génère un **formulaire dynamique** (texte, nombre,
-  booléen, liste de choix), puis dispatche sur la branche choisie. Après le
-  lancement, il bascule **automatiquement** sur le détail du run créé.
-- **Suivre** les runs en **live** : un tableau de bord multi-dépôts agrège l'état
-  de tes dépôts favoris, avec drill-down jobs/étapes, logs scrollables et actions
-  (rerun, rerun-failed, cancel, ouvrir dans le navigateur).
+- **Launch** a `workflow_dispatch` workflow: ghrun reads the workflow's `inputs`
+  straight from its YAML and renders a **dynamic form** (text, number, boolean,
+  choice), then dispatches on the branch you pick. After launching, it
+  **automatically** switches to the detail view of the run it created.
+- **Monitor** runs **live**: a multi-repo dashboard aggregates the status of your
+  favorite repos, with job/step drill-down, scrollable logs and actions (rerun,
+  rerun-failed, cancel, open in the browser).
 
-Toute la navigation se fait dans une **pile d'écrans** (push/pop). Convention :
-**majuscules = navigation globale** (disponible partout), **minuscules = actions
-contextuelles**.
+Navigation uses a **screen stack** (push/pop). Convention: **uppercase = global
+navigation** (available everywhere), **lowercase = contextual actions**.
 
 ---
 
-## Prérequis
+## Requirements
 
-- **[`gh`](https://cli.github.com/) authentifié** : lance `gh auth login` au
-  préalable. ghrun vérifie `gh auth status` au démarrage et s'arrête avec un
-  message explicite si l'auth manque. Scopes nécessaires : `repo` et `workflow`
-  (ainsi que `read:org` pour lister les organisations).
-- **Go 1.25+** uniquement si tu installes/compiles depuis les sources.
+- **An authenticated [`gh`](https://cli.github.com/)**: run `gh auth login` first.
+  ghrun checks `gh auth status` on startup and exits with a clear message if you
+  are not authenticated. Required scopes: `repo` and `workflow` (plus `read:org`
+  to list organizations).
+- **Go 1.25+** only if you install or build from source.
 
 ---
 
 ## Installation
 
-Via `go install` :
+Via `go install`:
 
 ```bash
 go install github.com/stephaneHerraiz/ghrun/cmd/ghrun@latest
 ```
 
-Ou depuis les sources :
+Or from source:
 
 ```bash
 git clone https://github.com/stephaneHerraiz/ghrun.git
@@ -74,201 +74,204 @@ go build -o ghrun ./cmd/ghrun
 
 ---
 
-## Premier lancement
+## First run
 
-1. ghrun vérifie que `gh` est authentifié.
-2. Au tout premier lancement, un fichier de configuration vide est créé dans
+1. ghrun verifies that `gh` is authenticated.
+2. On the very first run, an empty config file is created at
    `~/.config/ghrun/config.yaml`.
-3. Comme aucune organisation par défaut n'est définie, ghrun affiche un
-   **sélecteur d'organisation** listant ton compte personnel puis les
-   organisations dont tu es membre. Le choix est **persisté** dans la config.
-4. Tu arrives ensuite sur le **tableau de bord**.
+3. Since no default organization is set yet, ghrun shows an **organization
+   picker** listing your personal account followed by the organizations you
+   belong to. Your choice is **persisted** to the config.
+4. You then land on the **dashboard**.
 
 ---
 
-## Les écrans
+## Screens
 
-| Écran | Rôle |
+| Screen | Purpose |
 |---|---|
-| **Sélecteur d'organisation** | Premier lancement : choisir le compte/organisation par défaut. |
-| **Tableau de bord** (accueil) | Liste hybride : favoris (avec statut live) + dépôts de l'organisation. Sert aussi de sélecteur de dépôt filtrable. |
-| **Workflows** | Liste des workflows d'un dépôt. `Enter` charge les `inputs` et ouvre le lancement. |
-| **Lancement** | Choix de la branche (`ref`) puis formulaire d'`inputs` dynamique → dispatch. |
-| **Runs** | Liste live des runs du dépôt courant. |
-| **Détail run** | Jobs et étapes avec icônes de statut, rafraîchi en live. |
-| **Logs** | Viewport scrollable des logs (`--log` ou `--log-failed`). |
+| **Organization picker** | First run only: choose the default account/organization. |
+| **Dashboard** (home) | Hybrid list: favorites (with live status) + the organization's repos. Doubles as a filterable repo selector. |
+| **Workflows** | A repo's workflows. `Enter` loads the `inputs` and opens the launch screen. |
+| **Launch** | Pick the branch (`ref`), then a dynamic `inputs` form → dispatch. |
+| **Runs** | Live list of the current repo's runs. |
+| **Run detail** | Jobs and steps with status icons, refreshed live. |
+| **Logs** | Scrollable viewport of the logs (`--log` or `--log-failed`). |
 
-Chaque écran affiche un **fil d'Ariane** en en-tête et un **pied de page** avec les
-raccourcis et une zone d'erreur (les erreurs `gh` s'affichent en rouge, sans
-bloquer l'UI).
+Every screen shows a **breadcrumb** in the header and a **footer** with the
+keybindings and an error area (errors from `gh` show in red without blocking the
+UI).
 
 ---
 
-## Raccourcis clavier
+## Keybindings
 
-### Navigation globale (depuis n'importe quel écran)
+### Global navigation (from any screen)
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `W` | Workflows du dépôt courant |
-| `U` | Runs du dépôt courant |
-| `R` | Retour à l'accueil / sélection de dépôt |
-| `Esc` | Reculer d'un cran dans la pile |
-| `?` | Afficher / masquer l'aide |
-| `q` · `Ctrl-C` | Quitter |
+| `W` | Workflows of the current repo |
+| `U` | Runs of the current repo |
+| `R` | Back to home / repo selection |
+| `Esc` | Pop one level off the stack |
+| `?` | Show / hide help |
+| `q` · `Ctrl-C` | Quit |
 
-> `W` et `U` ne font effet que lorsqu'un dépôt est sélectionné.
+> `W` and `U` only take effect once a repo is selected.
 
-### Tableau de bord (accueil)
+### Dashboard (home)
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `↑`/`↓` · `k`/`j` · molette | Se déplacer dans la liste |
-| `Enter` | Entrer dans le dépôt (ouvre ses runs) |
-| `f` | **(Dé)favoriser** le dépôt en surbrillance (persisté en config) |
-| `g` | Rafraîchir (favoris + dépôts de l'organisation) |
-| `/` | Filtrer la liste (puis taper ; `Enter` entre dans le dépôt, `Esc` annule le filtre) |
+| `↑`/`↓` · `k`/`j` · mouse wheel | Move through the list |
+| `Enter` | Enter the repo (opens its runs) |
+| `f` | **Toggle favorite** for the highlighted repo (persisted to config) |
+| `g` | Refresh (favorites + organization repos) |
+| `/` | Filter the list (then type; `Enter` enters the repo, `Esc` clears the filter) |
 
 ### Workflows
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `↑`/`↓` · `k`/`j` · molette | Se déplacer |
-| `Enter` | Charger les inputs et configurer le lancement |
+| `↑`/`↓` · `k`/`j` · mouse wheel | Move |
+| `Enter` | Load inputs and configure the launch |
 
-### Lancement — choix de la branche
+### Launch — branch selection
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `↑`/`↓` · `k`/`j` · molette | Choisir la branche (`main`/`master` présélectionnée) |
-| `Enter` | Continuer vers le formulaire d'inputs |
+| `↑`/`↓` · `k`/`j` · mouse wheel | Choose the branch (`main`/`master` pre-selected) |
+| `Enter` | Continue to the inputs form |
 
-### Lancement — formulaire d'inputs
+### Launch — inputs form
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `↑`/`↓` | Changer de champ |
-| `←`/`→` | Modifier un choix ou un booléen |
-| *(saisie)* | Taper directement dans un champ texte/nombre |
-| `Enter` | **Lancer** le workflow (`Ctrl-S` fonctionne aussi, en repli) |
+| `↑`/`↓` | Move between fields |
+| `←`/`→` | Change a choice or a boolean |
+| *(typing)* | Type directly into a text/number field |
+| `Enter` | **Launch** the workflow (`Ctrl-S` also works, as a fallback) |
 
 ### Runs
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `↑`/`↓` · `k`/`j` · molette | Se déplacer |
-| `Enter` | Ouvrir le détail du run |
-| `r` | Relancer le run |
-| `f` | Relancer uniquement les jobs en échec |
-| `x` | Annuler le run |
-| `o` | Ouvrir le run dans le navigateur |
-| `g` | Rafraîchir |
+| `↑`/`↓` · `k`/`j` · mouse wheel | Move |
+| `Enter` | Open the run detail |
+| `r` | Rerun the run |
+| `f` | Rerun only the failed jobs |
+| `x` | Cancel the run |
+| `o` | Open the run in the browser |
+| `g` | Refresh |
 
-### Détail run
+### Run detail
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `l` | Voir les logs |
-| `r` | Relancer · `f` relancer les échecs · `x` annuler · `o` ouvrir web |
+| `l` | View logs |
+| `r` | Rerun · `f` rerun-failed · `x` cancel · `o` open web |
 
 ### Logs
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `↑`/`↓` · `PgUp`/`PgDn` · molette | Défiler le viewport |
-| `Esc` | Retour |
+| `↑`/`↓` · `PgUp`/`PgDn` · mouse wheel | Scroll the viewport |
+| `Esc` | Back |
 
 ---
 
-## Fonctionnalités
+## Features
 
-- **Tableau de bord hybride** : tes dépôts favoris (avec dernier run, état et
-  nombre de runs actifs, en live) suivis des dépôts de l'organisation choisie.
-- **Favoris à la volée** : `f` épingle/désépingle le dépôt en surbrillance ; le
-  changement est écrit immédiatement dans la config. Un dépôt désépinglé qui
-  appartient à l'organisation revient automatiquement dans la liste.
-- **Refresh live adaptatif** : rafraîchissement rapide (~3-5 s) tant qu'un run est
-  actif, ralenti (~15 s) sinon. Un seul ticker global pour éviter de surcharger
-  l'API `gh`.
-- **Filtrage instantané** des listes de dépôts (`/`).
-- **Pagination + ascenseur vertical + molette** sur toutes les listes (dépôts,
-  workflows, runs, branches). La hauteur est paramétrable (`listPageSize`).
-- **Formulaire d'inputs dynamique** : les `inputs` du `workflow_dispatch` sont
-  parsés depuis le YAML du workflow. Types gérés : `string`, `number`, `boolean`,
-  `choice`. Les champs `required` vides bloquent le lancement avec un message.
-- **Présélection de branche** : `main` puis `master` sont mises en avant.
-- **Bascule auto après dispatch** : `gh workflow run` ne renvoie pas l'ID du run
-  créé ; ghrun interroge la liste des runs juste après (avec quelques retries) et
-  ouvre directement le détail du run déclenché.
-- **Drill-down jobs/étapes** avec icônes de statut (succès / échec / en cours / en
-  attente).
-- **Logs scrollables** en plein écran (`--log`, ou `--log-failed` si le run a
-  échoué).
-- **Actions de run** : rerun, rerun-failed, cancel, ouvrir dans le navigateur.
-- **Souris** activée partout (molette de défilement sur les listes et les logs).
-- **Erreurs non bloquantes** : les échecs `gh` s'affichent en rouge dans le pied de
-  page et disparaissent au bout de quelques secondes ; seul un échec d'auth au
-  démarrage est fatal.
+- **Hybrid dashboard**: your favorite repos (with last run, state and number of
+  active runs, live) followed by the chosen organization's repos.
+- **On-the-fly favorites**: `f` pins/unpins the highlighted repo; the change is
+  written to the config immediately. An unpinned repo that belongs to the
+  organization automatically reappears in its list.
+- **Adaptive live refresh**: fast polling (~3-5s) while a run is active, slowed
+  down (~15s) otherwise. A single global ticker avoids hammering the `gh` API.
+- **Instant filtering** of repo lists (`/`).
+- **Pagination + vertical scrollbar + mouse wheel** on every list (repos,
+  workflows, runs, branches). The height is configurable (`listPageSize`).
+- **Dynamic inputs form**: the `workflow_dispatch` `inputs` are parsed from the
+  workflow YAML. Supported types: `string`, `number`, `boolean`, `choice`. Empty
+  `required` fields block the launch with a message.
+- **Branch pre-selection**: `main` then `master` are surfaced first.
+- **Auto-switch after dispatch**: `gh workflow run` does not return the created
+  run's ID; ghrun polls the run list right after (with a few retries) and opens
+  the triggered run's detail directly.
+- **Job/step drill-down** with status icons (success / failure / in progress /
+  queued).
+- **Scrollable logs** full-screen (`--log`, or `--log-failed` when the run
+  failed).
+- **Run actions**: rerun, rerun-failed, cancel, open in the browser.
+- **Mouse** enabled everywhere (wheel scrolling on lists and logs).
+- **Non-blocking errors**: `gh` failures show in red in the footer and clear after
+  a few seconds; only an auth failure at startup is fatal.
 
 ---
 
 ## Configuration
 
-Fichier : `~/.config/ghrun/config.yaml` (respecte `XDG_CONFIG_HOME`).
+File: `~/.config/ghrun/config.yaml` (honors `XDG_CONFIG_HOME`).
 
 ```yaml
-defaultOrg: stephaneHerraiz       # compte/org utilisé pour lister les dépôts
-refreshIntervalSeconds: 4         # cadence de base du refresh live
-runListLimit: 30                  # nombre de runs récupérés par dépôt
-listPageSize: 20                  # nombre de lignes affichées par liste (+ ascenseur)
-favorites:                        # dépôts épinglés (statut live sur l'accueil)
+defaultOrg: stephaneHerraiz       # account/org used to list repos
+refreshIntervalSeconds: 4         # base cadence of the live refresh
+runListLimit: 30                  # number of runs fetched per repo
+listPageSize: 20                  # rows shown per list (+ scrollbar)
+favorites:                        # pinned repos (live status on the home screen)
   - stephaneHerraiz/ghrun
   - owner/another-repo
 ```
 
-| Clé | Défaut | Description |
+| Key | Default | Description |
 |---|---|---|
-| `defaultOrg` | *(choisi au 1ᵉʳ lancement)* | Compte ou organisation dont les dépôts sont listés. |
-| `refreshIntervalSeconds` | `4` | Cadence de base du rafraîchissement live. |
-| `runListLimit` | `30` | Nombre de runs récupérés par dépôt. |
-| `listPageSize` | `20` | Hauteur (en lignes) des listes avant pagination/ascenseur. |
-| `favorites` | `[]` | Liste de dépôts `owner/name` épinglés. Modifiable aussi via la touche `f`. |
+| `defaultOrg` | *(chosen on first run)* | Account or organization whose repos are listed. |
+| `refreshIntervalSeconds` | `4` | Base cadence of the live refresh. |
+| `runListLimit` | `30` | Number of runs fetched per repo. |
+| `listPageSize` | `20` | List height (in rows) before pagination/scrollbar. |
+| `favorites` | `[]` | List of pinned `owner/name` repos. Also editable via the `f` key. |
 
-**Cache** : la liste des dépôts de l'organisation est mise en cache dans
-`~/.cache/ghrun/repos.json` (respecte `XDG_CACHE_HOME`) pour un affichage instantané,
-puis rafraîchie en arrière-plan.
+**Cache**: the organization's repo list is cached at `~/.cache/ghrun/repos.json`
+(honors `XDG_CACHE_HOME`) for instant display, then refreshed in the background.
 
 ---
 
-## Comment ghrun parle à GitHub
+## How ghrun talks to GitHub
 
-ghrun n'invente rien : il enveloppe le CLI `gh` (et son API). Vue d'ensemble :
+ghrun invents nothing: it wraps the `gh` CLI (and its API). Overview:
 
-| Fonction | Commande sous-jacente |
+| Function | Underlying command |
 |---|---|
-| Auth (démarrage) | `gh auth status` |
-| Organisations / compte | `gh api user`, `gh api user/orgs` |
-| Liste des dépôts | `gh repo list <org> --json nameWithOwner` |
-| Workflows d'un dépôt | `gh workflow list` |
-| Inputs d'un workflow | contenu du fichier YAML → `on.workflow_dispatch.inputs` |
+| Auth (startup) | `gh auth status` |
+| Organizations / account | `gh api user`, `gh api user/orgs` |
+| Repo list | `gh repo list <org> --json nameWithOwner` |
+| A repo's workflows | `gh workflow list` |
+| A workflow's inputs | the YAML file contents → `on.workflow_dispatch.inputs` |
 | Branches | `gh api repos/{o}/{r}/branches` |
-| **Dispatch** | `gh workflow run {id} --ref {branche} -f clé=valeur …` |
-| Runs (liste live) | `gh run list` |
-| Détail d'un run | `gh run view {id} --json status,conclusion,jobs` |
+| **Dispatch** | `gh workflow run {id} --ref {branch} -f key=value …` |
+| Runs (live list) | `gh run list` |
+| Run detail | `gh run view {id} --json status,conclusion,jobs` |
 | Logs | `gh run view {id} --log` / `--log-failed` |
 | rerun / rerun-failed / cancel | `gh run rerun {id}` / `--failed` / `gh run cancel {id}` |
-| Ouvrir web | `gh run view {id} --web` |
+| Open web | `gh run view {id} --web` |
 
-Tous les appels sont **asynchrones** (via les commandes Bubbletea) : l'interface ne
-bloque jamais.
+All calls are **asynchronous** (via Bubbletea commands): the UI never blocks.
 
 ---
 
-## Hors périmètre
+## Out of scope
 
-Volontairement non couvert (YAGNI) :
+Deliberately not covered (YAGNI):
 
-- Édition de workflows ou de secrets.
-- Gestion / téléchargement d'artefacts.
-- GitHub Enterprise multi-hôte (ghrun cible `github.com` via l'auth `gh` existante).
-- Notifications système.
+- Editing workflows or secrets.
+- Artifact management / download.
+- Multi-host GitHub Enterprise (ghrun targets `github.com` via the existing `gh`
+  auth).
+- System notifications.
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Stéphane Herraiz
