@@ -62,7 +62,7 @@ func (w *workflows) Update(msg tea.Msg) (Screen, tea.Cmd) {
 				break
 			}
 		}
-		lc, cmd := newLaunch(w.client, w.repo, wf, m.inputs)
+		lc, cmd := newLaunch(w.client, w.repo, wf, m.inputs, w.pageSize)
 		return w, tea.Batch(func() tea.Msg { return pushMsg{screen: lc} }, cmd)
 	}
 	return w, nil

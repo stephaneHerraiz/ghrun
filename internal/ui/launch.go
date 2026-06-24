@@ -34,15 +34,15 @@ type launch struct {
 	wf         gh.Workflow
 	phase      launchPhase
 	branches   []string
-	branchIx   int
+	branchList listScroll // cursor + vertical scroll window over branches
 	fields     []field
 	cursor     int
 	missing    []string
 	dispatched time.Time
 }
 
-func newLaunch(c GHClient, repo gh.RepoRef, wf gh.Workflow, inputs []gh.Input) (*launch, tea.Cmd) {
-	l := &launch{client: c, repo: repo, wf: wf, phase: phaseBranch}
+func newLaunch(c GHClient, repo gh.RepoRef, wf gh.Workflow, inputs []gh.Input, pageSize int) (*launch, tea.Cmd) {
+	l := &launch{client: c, repo: repo, wf: wf, phase: phaseBranch, branchList: listScroll{pageSize: pageSize}}
 	for _, in := range inputs {
 		f := field{in: in}
 		switch in.Type {
@@ -100,10 +100,23 @@ func (l *launch) validate() []string {
 }
 
 func (l *launch) currentBranch() string {
-	if l.branchIx < len(l.branches) {
-		return l.branches[l.branchIx]
+	if l.branchList.cursor < len(l.branches) {
+		return l.branches[l.branchList.cursor]
 	}
 	return ""
+}
+
+// defaultBranchIndex prefers main/master so [Enter] runs on the expected branch
+// instead of the alphabetically-first one.
+func defaultBranchIndex(branches []string) int {
+	for _, pref := range []string{"main", "master"} {
+		for i, b := range branches {
+			if b == pref {
+				return i
+			}
+		}
+	}
+	return 0
 }
 
 func (l *launch) Update(msg tea.Msg) (Screen, tea.Cmd) {
@@ -113,6 +126,13 @@ func (l *launch) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return l, func() tea.Msg { return errMsg{err: m.err} }
 		}
 		l.branches = m.branches
+		l.branchList.cursor = defaultBranchIndex(m.branches)
+		l.branchList.clampCursor(len(l.branches))
+		return l, nil
+	case tea.MouseMsg:
+		if l.phase == phaseBranch {
+			l.branchList.handleWheel(m, len(l.branches))
+		}
 		return l, nil
 	case dispatchedMsg:
 		if m.err != nil {
@@ -157,17 +177,15 @@ func (l *launch) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 	case phaseBranch:
 		switch m.String() {
 		case "up", "k":
-			if l.branchIx > 0 {
-				l.branchIx--
-			}
+			l.branchList.up()
 		case "down", "j":
-			if l.branchIx < len(l.branches)-1 {
-				l.branchIx++
-			}
+			l.branchList.down(len(l.branches))
 		case "enter":
 			l.phase = phaseInputs
 			l.focusCurrent()
+			return l, nil
 		}
+		l.branchList.ensureVisible(len(l.branches))
 		return l, nil
 	case phaseInputs:
 		switch m.String() {
@@ -261,15 +279,18 @@ func (l *launch) View() string {
 	switch l.phase {
 	case phaseBranch:
 		b.WriteString("Choisir la branche (ref) :\n\n")
-		for i, br := range l.branches {
-			cursor := "  "
-			if i == l.branchIx {
-				cursor = "▸ "
-			}
-			b.WriteString(cursor + br + "\n")
-		}
 		if len(l.branches) == 0 {
 			b.WriteString("(chargement des branches…)\n")
+		} else {
+			lines := make([]string, len(l.branches))
+			for i, br := range l.branches {
+				cursor := "  "
+				if i == l.branchList.cursor {
+					cursor = "▸ "
+				}
+				lines[i] = cursor + br
+			}
+			b.WriteString(l.branchList.render(lines) + "\n")
 		}
 		b.WriteString("\n[Enter] continuer")
 	case phaseInputs:
