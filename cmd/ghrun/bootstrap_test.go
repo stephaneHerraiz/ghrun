@@ -27,5 +27,8 @@ func TestEnsureConfigWritesTemplateOnFirstRun(t *testing.T) {
 	if _, err := ensureConfig(); err != nil {
 		t.Fatalf("second ensureConfig: %v", err)
 	}
+	if cfg.DefaultOrg != "" {
+		t.Errorf("first-run DefaultOrg = %q, want empty (org chosen interactively)", cfg.DefaultOrg)
+	}
 	_ = config.Default()
 }

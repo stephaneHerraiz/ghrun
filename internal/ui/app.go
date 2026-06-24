@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,21 +20,35 @@ const errBannerTTL = 6 * time.Second
 
 // App is the root Bubbletea model: it owns the screen stack and global chrome.
 type App struct {
-	client   GHClient
-	cfg      config.Config
-	stack    []Screen
-	repo     *gh.RepoRef // current repo context (nil at dashboard)
-	width    int
-	height   int
-	errText  string
-	showHelp bool
+	client     GHClient
+	cfg        config.Config
+	stack      []Screen
+	repo       *gh.RepoRef // current repo context (nil at dashboard)
+	width      int
+	height     int
+	errText    string
+	showHelp   bool
+	saveConfig func(config.Config) error
 }
 
-// NewApp builds the root model with the dashboard seeded as the initial screen.
+// homeScreen returns the home/initial screen: the org picker until a default
+// org is chosen, then the multi-repo dashboard.
+func (a App) homeScreen() (Screen, tea.Cmd) {
+	if a.cfg.DefaultOrg == "" {
+		return newOrgPicker(a.client)
+	}
+	return newDashboard(a.client, a.cfg)
+}
+
+// NewApp builds the root model seeding the initial screen via homeScreen.
 func NewApp(c GHClient, cfg config.Config) App {
-	a := App{client: c, cfg: cfg}
-	dash, _ := newDashboard(c, cfg)
-	a.stack = []Screen{dash}
+	a := App{
+		client:     c,
+		cfg:        cfg,
+		saveConfig: func(cf config.Config) error { return cf.Save() },
+	}
+	s, _ := a.homeScreen()
+	a.stack = []Screen{s}
 	return a
 }
 
@@ -46,11 +61,14 @@ func (a App) tickInterval() time.Duration {
 	return time.Duration(s) * time.Second
 }
 
-// Init kicks off the dashboard's initial load and starts the single app ticker.
+// Init kicks off the initial screen's load and starts the single app ticker.
 func (a App) Init() tea.Cmd {
 	var initCmd tea.Cmd
-	if d, ok := a.top().(*dashboard); ok {
-		initCmd = d.initCmd()
+	switch s := a.top().(type) {
+	case *dashboard:
+		initCmd = s.initCmd()
+	case *orgpicker:
+		initCmd = s.initCmd()
 	}
 	return tea.Batch(initCmd, tickCmd(a.tickInterval()))
 }
@@ -134,6 +152,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil // no repo selected: swallow, don't leak the key to the screen
 		}
 
+	case orgSelectedMsg:
+		a.cfg.DefaultOrg = m.org
+		var saveCmd tea.Cmd
+		if a.saveConfig != nil {
+			if err := a.saveConfig(a.cfg); err != nil {
+				saveCmd = func() tea.Msg { return errMsg{err: fmt.Errorf("saving config: %w", err)} }
+			}
+		}
+		dash, dashCmd := newDashboard(a.client, a.cfg)
+		a.repo = nil
+		a.stack = []Screen{dash}
+		return a, tea.Batch(saveCmd, dashCmd)
 	case pushMsg:
 		a.push(m.screen)
 		return a, nil
@@ -179,9 +209,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a App) handleGoto(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg.(type) {
 	case gotoReposMsg:
-		dash, cmd := newDashboard(a.client, a.cfg)
+		s, cmd := a.homeScreen()
 		a.repo = nil
-		a.stack = []Screen{dash}
+		a.stack = []Screen{s}
 		return a, cmd
 	case gotoWorkflowsMsg:
 		repo, ok := a.currentRepo()

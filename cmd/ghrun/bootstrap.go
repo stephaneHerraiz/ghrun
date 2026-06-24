@@ -24,7 +24,6 @@ func ensureConfig() (config.Config, error) {
 			return config.Config{}, statErr
 		}
 		template := config.Default()
-		template.DefaultOrg = "stephaneHerraiz"
 		template.Favorites = []string{}
 		if err := config.SaveTo(p, template); err != nil {
 			return config.Config{}, err

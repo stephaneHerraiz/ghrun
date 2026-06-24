@@ -13,6 +13,21 @@ type gotoReposMsg struct{}
 type gotoWorkflowsMsg struct{}
 type gotoRunsMsg struct{}
 
+// Org-picker messages.
+type namespacesLoadedMsg struct {
+	names []string
+	err   error
+}
+type orgSelectedMsg struct{ org string }
+
+// loadNamespacesCmd fetches the list of namespaces (user login + orgs) asynchronously.
+func loadNamespacesCmd(c GHClient) tea.Cmd {
+	return func() tea.Msg {
+		names, err := c.ListNamespaces()
+		return namespacesLoadedMsg{names: names, err: err}
+	}
+}
+
 // errMsg carries a non-fatal gh error for the footer.
 type errMsg struct{ err error }
 type clearErrMsg struct{}

@@ -10,7 +10,9 @@ import (
 )
 
 func newTestApp() App {
-	a := NewApp(nil, config.Default())
+	cfg := config.Default()
+	cfg.DefaultOrg = "test-org" // non-empty → dashboard root (not the org picker)
+	a := NewApp(nil, cfg)
 	a.width, a.height = 80, 24
 	return a
 }
@@ -89,6 +91,7 @@ func TestAppTickReArmsAndRefreshesTop(t *testing.T) {
 // (not treated as quit).
 func TestFilteringDashboardSwallowsGlobalKeys(t *testing.T) {
 	cfg := config.Default()
+	cfg.DefaultOrg = "test-org"
 	cfg.Favorites = []string{"o/alpha", "o/beta"}
 	var m tea.Model = NewApp(nil, cfg)
 
@@ -111,5 +114,36 @@ func TestFilteringDashboardSwallowsGlobalKeys(t *testing.T) {
 		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
 			t.Fatal("'q' while filtering should not quit")
 		}
+	}
+}
+
+func TestNewAppShowsOrgPickerWhenNoDefaultOrg(t *testing.T) {
+	// empty default org → picker
+	a := NewApp(nil, config.Config{})
+	if _, ok := a.top().(*orgpicker); !ok {
+		t.Fatalf("top = %T, want *orgpicker when DefaultOrg empty", a.top())
+	}
+	// non-empty default org → dashboard
+	b := NewApp(nil, config.Config{DefaultOrg: "acme"})
+	if _, ok := b.top().(*dashboard); !ok {
+		t.Fatalf("top = %T, want *dashboard when DefaultOrg set", b.top())
+	}
+}
+
+func TestOrgSelectedSavesAndSwapsToDashboard(t *testing.T) {
+	a := NewApp(nil, config.Config{}) // org picker root
+	var saved config.Config
+	a.saveConfig = func(c config.Config) error { saved = c; return nil }
+
+	model, _ := a.Update(orgSelectedMsg{org: "acme"})
+	got := model.(App)
+	if saved.DefaultOrg != "acme" {
+		t.Errorf("saved DefaultOrg = %q, want acme", saved.DefaultOrg)
+	}
+	if got.cfg.DefaultOrg != "acme" {
+		t.Errorf("in-memory DefaultOrg = %q, want acme", got.cfg.DefaultOrg)
+	}
+	if _, ok := got.top().(*dashboard); !ok {
+		t.Fatalf("top after selection = %T, want *dashboard", got.top())
 	}
 }
