@@ -223,7 +223,7 @@ func TestScrollbarGlyphs(t *testing.T) {
 }
 
 func TestDashboardWindowsAndScrollsWithCursor(t *testing.T) {
-	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", DashboardPageSize: 3})
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", ListPageSize: 3})
 	repos := []gh.RepoRef{
 		{Owner: "acme", Name: "r0"}, {Owner: "acme", Name: "r1"}, {Owner: "acme", Name: "r2"},
 		{Owner: "acme", Name: "r3"}, {Owner: "acme", Name: "r4"}, {Owner: "acme", Name: "r5"},
@@ -267,7 +267,7 @@ func TestDashboardWindowsAndScrollsWithCursor(t *testing.T) {
 }
 
 func TestDashboardMouseWheelScrollsList(t *testing.T) {
-	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", DashboardPageSize: 3})
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", ListPageSize: 3})
 	repos := []gh.RepoRef{
 		{Owner: "acme", Name: "r0"}, {Owner: "acme", Name: "r1"}, {Owner: "acme", Name: "r2"},
 		{Owner: "acme", Name: "r3"}, {Owner: "acme", Name: "r4"}, {Owner: "acme", Name: "r5"},

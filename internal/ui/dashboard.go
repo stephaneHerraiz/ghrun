@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
@@ -31,8 +30,7 @@ type dashboard struct {
 	statuses   []repoStatus
 	orgRepos   []gh.RepoRef // org repos excluding favorites (name only)
 	cachePath  string
-	cursor     int
-	offset     int // index of the first displayed row (vertical scroll position)
+	listScroll // cursor + vertical scroll window
 	filter     string
 	filtering  bool
 	loading    bool // favorites' live status loading
@@ -61,6 +59,7 @@ func newDashboard(c GHClient, cfg config.Config) (*dashboard, tea.Cmd) {
 		org:        cfg.DefaultOrg,
 		favs:       favs,
 		cachePath:  cachePath,
+		listScroll: listScroll{pageSize: cfg.ListPageSize},
 		loading:    true,
 		orgLoading: cfg.DefaultOrg != "",
 	}
@@ -99,30 +98,9 @@ func (d *dashboard) dedupOrgRepos(repos []gh.RepoRef) []gh.RepoRef {
 	return out
 }
 
-// pageSize is the max number of repo rows shown at once (configurable).
-func (d *dashboard) pageSize() int {
-	n := d.cfg.DashboardPageSize
-	if n < 1 {
-		n = 20
-	}
-	return n
-}
-
 // clampOffset keeps a scroll offset within [0, total-page].
 func clampOffset(off, page, total int) int {
 	return max(0, min(off, max(0, total-page)))
-}
-
-// ensureVisible scrolls the window so the cursor row stays in view.
-func (d *dashboard) ensureVisible() {
-	page := d.pageSize()
-	total := len(d.visible())
-	if d.cursor < d.offset {
-		d.offset = d.cursor
-	} else if d.cursor >= d.offset+page {
-		d.offset = d.cursor - page + 1
-	}
-	d.offset = clampOffset(d.offset, page, total)
 }
 
 func (d *dashboard) interval() time.Duration {
@@ -229,10 +207,7 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			}
 			return d.statuses[i].repo.String() < d.statuses[j].repo.String()
 		})
-		if n := len(d.visible()); d.cursor >= n {
-			d.cursor = 0
-		}
-		d.ensureVisible()
+		d.clampCursor(len(d.visible()))
 		return d, nil
 	case orgReposLoadedMsg:
 		if !m.fromCache {
@@ -253,24 +228,10 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			d.orgFetched = true
 		}
 		d.orgRepos = d.dedupOrgRepos(m.repos)
-		if n := len(d.visible()); d.cursor >= n {
-			d.cursor = 0
-		}
-		d.ensureVisible()
+		d.clampCursor(len(d.visible()))
 		return d, nil
 	case tea.MouseMsg:
-		switch m.Button {
-		case tea.MouseButtonWheelUp:
-			if d.cursor > 0 {
-				d.cursor--
-			}
-			d.ensureVisible()
-		case tea.MouseButtonWheelDown:
-			if d.cursor < len(d.visible())-1 {
-				d.cursor++
-			}
-			d.ensureVisible()
-		}
+		d.handleWheel(m, len(d.visible()))
 		return d, nil
 	case tea.KeyMsg:
 		return d.handleKey(m)
@@ -307,29 +268,20 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 				d.cursor = 0
 			}
 		case tea.KeyUp:
-			if d.cursor > 0 {
-				d.cursor--
-			}
+			d.up()
 		case tea.KeyDown:
-			vis = d.visible() // recompute after any filter change
-			if d.cursor < len(vis)-1 {
-				d.cursor++
-			}
+			d.down(len(d.visible())) // recompute after any filter change
 		}
-		d.ensureVisible()
+		d.ensureVisible(len(d.visible()))
 		return d, nil
 	}
 
 	// Normal (non-filtering) mode.
 	switch m.String() {
 	case "up", "k":
-		if d.cursor > 0 {
-			d.cursor--
-		}
+		d.up()
 	case "down", "j":
-		if d.cursor < len(vis)-1 {
-			d.cursor++
-		}
+		d.down(len(vis))
 	case "g":
 		return d, tea.Batch(d.loadCmd(), d.refreshOrgReposCmd())
 	case "enter":
@@ -340,7 +292,7 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 	case "/":
 		d.filtering = true
 	}
-	d.ensureVisible()
+	d.ensureVisible(len(vis))
 	return d, nil
 }
 
@@ -362,39 +314,32 @@ func (d *dashboard) View() string {
 		return "Aucun favori configuré.\nÉditez ~/.config/ghrun/config.yaml (clé favorites)."
 	}
 	// Window the rows to pageSize and follow the cursor.
-	page := d.pageSize()
 	total := len(rows)
-	win := min(page, total)
-	offset := clampOffset(d.offset, page, total)
+	offset, win := d.windowBounds(total)
 	window := rows[offset : offset+win]
 	bar := scrollbarGlyphs(total, win, offset)
 
 	// Build the row lines and a parallel scrollbar column (one glyph per row;
 	// the org separator line gets a track glyph so the bar stays continuous).
-	var rowLines, barLines []string
+	var rowLines, barRaw []string
 	sepDone := false
 	for c, s := range window {
 		if s.isOrg && !sepDone {
 			rowLines = append(rowLines, footerStyle.Render(fmt.Sprintf("  ── repos de %s ──", d.org)))
 			if bar != nil {
-				barLines = append(barLines, styleGlyph(scrollTrack))
+				barRaw = append(barRaw, scrollTrack)
 			}
 			sepDone = true
 		}
 		rowLines = append(rowLines, d.rowLine(s, offset+c == d.cursor))
 		if bar != nil {
-			barLines = append(barLines, styleGlyph(bar[c]))
+			barRaw = append(barRaw, bar[c])
 		}
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%-40s %-26s %-8s %s\n", "REPO", "DERNIER RUN", "ÉTAT", "ACTIFS")
-	list := strings.Join(rowLines, "\n")
-	if bar != nil {
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, list, "  ", strings.Join(barLines, "\n")))
-	} else {
-		b.WriteString(list)
-	}
+	b.WriteString(joinScrollbar(rowLines, barRaw))
 	b.WriteByte('\n')
 	if total > win {
 		fmt.Fprintln(&b, footerStyle.Render(fmt.Sprintf("repos %d–%d / %d", offset+1, offset+win, total)))

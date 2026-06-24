@@ -14,8 +14,8 @@ func TestDefaultValues(t *testing.T) {
 	if d.RunListLimit != 30 {
 		t.Errorf("RunListLimit = %d, want 30", d.RunListLimit)
 	}
-	if d.DashboardPageSize != 20 {
-		t.Errorf("DashboardPageSize = %d, want 20", d.DashboardPageSize)
+	if d.ListPageSize != 20 {
+		t.Errorf("ListPageSize = %d, want 20", d.ListPageSize)
 	}
 }
 
@@ -35,7 +35,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		DefaultOrg:             "stephaneHerraiz",
 		RefreshIntervalSeconds: 6,
 		RunListLimit:           50,
-		DashboardPageSize:      25,
+		ListPageSize:           25,
 		Favorites:              []string{"stephaneHerraiz/ghrun"},
 	}
 	if err := SaveTo(p, in); err != nil {
@@ -60,7 +60,7 @@ func TestLoadAppliesDefaultsForZeroFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.RefreshIntervalSeconds != 4 || got.RunListLimit != 30 || got.DashboardPageSize != 20 {
+	if got.RefreshIntervalSeconds != 4 || got.RunListLimit != 30 || got.ListPageSize != 20 {
 		t.Errorf("defaults not applied: %+v", got)
 	}
 }

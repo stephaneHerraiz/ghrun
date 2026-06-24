@@ -170,7 +170,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case enterRepoMsg:
 		repo := m.repo
 		a.repo = &repo
-		runs, cmd := newRuns(a.client, repo, a.cfg.RunListLimit)
+		runs, cmd := newRuns(a.client, repo, a.cfg.RunListLimit, a.cfg.ListPageSize)
 		a.push(runs)
 		return a, cmd
 	case tickMsg:
@@ -218,7 +218,7 @@ func (a App) handleGoto(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return a, nil
 		}
-		wf, cmd := newWorkflows(a.client, repo)
+		wf, cmd := newWorkflows(a.client, repo, a.cfg.ListPageSize)
 		a.stack = a.stack[:1]
 		a.push(wf)
 		return a, cmd
@@ -227,7 +227,7 @@ func (a App) handleGoto(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return a, nil
 		}
-		runs, cmd := newRuns(a.client, repo, a.cfg.RunListLimit)
+		runs, cmd := newRuns(a.client, repo, a.cfg.RunListLimit, a.cfg.ListPageSize)
 		a.stack = a.stack[:1]
 		a.push(runs)
 		return a, cmd
