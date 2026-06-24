@@ -50,8 +50,9 @@ type dispatchedMsg struct {
 	err   error
 }
 type runFoundMsg struct {
-	id  int64
-	err error
+	id      int64
+	attempt int
+	err     error
 }
 type actionDoneMsg struct{ err error } // rerun/cancel completed
 type tickMsg time.Time

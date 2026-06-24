@@ -18,6 +18,8 @@ const (
 	phaseSubmitting
 )
 
+const maxFindRunAttempts = 5
+
 // field holds editing state for one input.
 type field struct {
 	in       gh.Input
@@ -121,10 +123,17 @@ func (l *launch) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		return l, l.findRunCmd(0)
 	case runFoundMsg:
 		if m.err != nil {
+			l.phase = phaseInputs
 			return l, func() tea.Msg { return errMsg{err: m.err} }
 		}
 		if m.id == 0 {
-			return l, l.findRunCmd(1) // retry chain handled below
+			if m.attempt+1 >= maxFindRunAttempts {
+				l.phase = phaseInputs
+				return l, func() tea.Msg {
+					return errMsg{err: fmt.Errorf("run introuvable après %d tentatives — vérifiez l'onglet runs", maxFindRunAttempts)}
+				}
+			}
+			return l, l.findRunCmd(m.attempt + 1)
 		}
 		rd, cmd := newRunDetail(l.client, l.repo, m.id)
 		return l, tea.Batch(func() tea.Msg { return pushMsg{screen: rd} }, cmd)
@@ -167,16 +176,30 @@ func (l *launch) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 				l.cursor--
 				l.focusCurrent()
 			}
+			return l, nil
 		case "down":
 			if l.cursor < len(l.fields)-1 {
 				l.cursor++
 				l.focusCurrent()
 			}
-		case "left", "right":
-			l.adjustChoice(&l.fields[l.cursor], m.String() == "right")
+			return l, nil
 		case "ctrl+s":
 			return l.submit()
 		}
+		if len(l.fields) == 0 {
+			return l, nil
+		}
+		f := &l.fields[l.cursor]
+		if f.in.Type == gh.InputBoolean || f.in.Type == gh.InputChoice {
+			if s := m.String(); s == "left" || s == "right" {
+				l.adjustChoice(f, s == "right")
+			}
+			return l, nil
+		}
+		// Text/number field: forward the key to the textinput.
+		var cmd tea.Cmd
+		f.text, cmd = f.text.Update(m)
+		return l, cmd
 	}
 	return l, nil
 }
@@ -221,19 +244,15 @@ func (l *launch) submit() (Screen, tea.Cmd) {
 	}
 }
 
-// findRunCmd polls for the dispatched run with bounded retries.
+// findRunCmd polls once for the dispatched run, carrying the attempt number.
 func (l *launch) findRunCmd(attempt int) tea.Cmd {
 	repo, wfID, since := l.repo, l.wf.ID, l.dispatched
 	c := l.client
 	return func() tea.Msg {
-		// brief backoff before each lookup (run appears with a delay)
+		// Backoff: the run appears with a short, growing delay.
 		time.Sleep(time.Duration(1+attempt) * time.Second)
 		id, err := c.FindRunSince(repo, wfID, since)
-		if err == nil && id == 0 && attempt < 5 {
-			id2, err2 := c.FindRunSince(repo, wfID, since)
-			return runFoundMsg{id: id2, err: err2}
-		}
-		return runFoundMsg{id: id, err: err}
+		return runFoundMsg{id: id, attempt: attempt, err: err}
 	}
 }
 
