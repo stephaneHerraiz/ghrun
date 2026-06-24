@@ -73,25 +73,27 @@ func TestErrMsgSetsFooterError(t *testing.T) {
 // capturing filter input, a global key like "q" is delegated to the screen
 // (not treated as quit).
 func TestFilteringDashboardSwallowsGlobalKeys(t *testing.T) {
-	a := NewApp(nil, config.Default())
-	// Drive '/' through the app so the routing path is exercised.
-	// '/' is not a global key, so it delegates to the dashboard, which enters filtering.
-	_, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	cfg := config.Default()
+	cfg.Favorites = []string{"o/alpha", "o/beta"}
+	var m tea.Model = NewApp(nil, cfg)
 
-	// Confirm the dashboard is now capturing input.
-	d, ok := a.top().(*dashboard)
+	// Drive '/' through the app so the routing path is exercised. '/' is not a
+	// global key, so it delegates to the dashboard, which enters filtering.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+
+	// Confirm the dashboard (top of stack) is now capturing input.
+	d, ok := m.(App).top().(*dashboard)
 	if !ok {
 		t.Fatal("top screen is not a *dashboard")
 	}
 	if !d.capturingInput() {
-		t.Skip("dashboard did not enter filtering mode after '/' (no favorites configured, skip)")
+		t.Fatal("dashboard should be in filtering mode after '/'")
 	}
 
-	// Now type 'q' — must NOT quit; app should return without a QuitMsg.
-	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	// Now type 'q' — must NOT quit; the app must delegate it to the dashboard.
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if cmd != nil {
-		msg := cmd()
-		if _, isQuit := msg.(tea.QuitMsg); isQuit {
+		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
 			t.Fatal("'q' while filtering should not quit")
 		}
 	}

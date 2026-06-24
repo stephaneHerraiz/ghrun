@@ -111,10 +111,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, ok := a.currentRepo(); ok {
 				return a.handleGoto(gotoWorkflowsMsg{})
 			}
+			return a, nil // no repo selected: swallow, don't leak the key to the screen
 		case keyRuns:
 			if _, ok := a.currentRepo(); ok {
 				return a.handleGoto(gotoRunsMsg{})
 			}
+			return a, nil // no repo selected: swallow, don't leak the key to the screen
 		}
 
 	case pushMsg:
