@@ -17,19 +17,25 @@ type repoStatus struct {
 	latest *gh.Run
 	active int
 	err    error
+	isOrg  bool // org repo (name only, no live status) vs. a favorite (live)
 }
 
 type dashboardLoadedMsg struct{ statuses []repoStatus }
 
 type dashboard struct {
-	client    GHClient
-	cfg       config.Config
-	favs      []gh.RepoRef
-	statuses  []repoStatus
-	cursor    int
-	filter    string
-	filtering bool
-	loading   bool
+	client     GHClient
+	cfg        config.Config
+	org        string // cfg.DefaultOrg: source for the listed org repos
+	favs       []gh.RepoRef
+	statuses   []repoStatus
+	orgRepos   []gh.RepoRef // org repos excluding favorites (name only)
+	cachePath  string
+	cursor     int
+	filter     string
+	filtering  bool
+	loading    bool // favorites' live status loading
+	orgLoading bool // org repo list loading (cache + gh)
+	orgFetched bool // a fresh (non-cache) org repo result has been applied
 }
 
 // capturingInput reports whether the dashboard is in text-entry (filter) mode,
@@ -37,7 +43,8 @@ type dashboard struct {
 // global navigation shortcuts.
 func (d *dashboard) capturingInput() bool { return d.filtering }
 
-// newDashboard builds the dashboard from configured favorites.
+// newDashboard builds the dashboard from configured favorites plus the chosen
+// org's repositories (the hybrid multi-repo selector).
 func newDashboard(c GHClient, cfg config.Config) (*dashboard, tea.Cmd) {
 	var favs []gh.RepoRef
 	for _, s := range cfg.Favorites {
@@ -45,12 +52,49 @@ func newDashboard(c GHClient, cfg config.Config) (*dashboard, tea.Cmd) {
 			favs = append(favs, r)
 		}
 	}
-	d := &dashboard{client: c, cfg: cfg, favs: favs, loading: true}
+	cachePath, _ := config.ResolveCachePath() // "" on failure: cache simply disabled
+	d := &dashboard{
+		client:     c,
+		cfg:        cfg,
+		org:        cfg.DefaultOrg,
+		favs:       favs,
+		cachePath:  cachePath,
+		loading:    true,
+		orgLoading: cfg.DefaultOrg != "",
+	}
 	return d, d.initCmd()
 }
 
 func (d *dashboard) initCmd() tea.Cmd {
-	return d.loadCmd()
+	cmds := []tea.Cmd{d.loadCmd()}
+	if d.org != "" {
+		cmds = append(cmds, loadCachedOrgReposCmd(d.cachePath), loadOrgReposCmd(d.client, d.org, d.cachePath))
+	}
+	return tea.Batch(cmds...)
+}
+
+// refreshOrgReposCmd re-fetches the org repos from gh (used by manual refresh).
+func (d *dashboard) refreshOrgReposCmd() tea.Cmd {
+	if d.org == "" {
+		return nil
+	}
+	return loadOrgReposCmd(d.client, d.org, d.cachePath)
+}
+
+// dedupOrgRepos drops org repos already pinned as favorites and sorts the rest.
+func (d *dashboard) dedupOrgRepos(repos []gh.RepoRef) []gh.RepoRef {
+	favSet := make(map[string]bool, len(d.favs))
+	for _, f := range d.favs {
+		favSet[f.String()] = true
+	}
+	out := make([]gh.RepoRef, 0, len(repos))
+	for _, r := range repos {
+		if !favSet[r.String()] {
+			out = append(out, r)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
 }
 
 func (d *dashboard) interval() time.Duration {
@@ -118,12 +162,24 @@ func (d *dashboard) anyActive() bool {
 	return false
 }
 
+// allRows is the unified, ordered selectable list: favorites (with live status)
+// first, then org repos (name only).
+func (d *dashboard) allRows() []repoStatus {
+	rows := make([]repoStatus, 0, len(d.statuses)+len(d.orgRepos))
+	rows = append(rows, d.statuses...)
+	for _, r := range d.orgRepos {
+		rows = append(rows, repoStatus{repo: r, isOrg: true})
+	}
+	return rows
+}
+
 func (d *dashboard) visible() []repoStatus {
+	all := d.allRows()
 	if d.filter == "" {
-		return d.statuses
+		return all
 	}
 	var out []repoStatus
-	for _, s := range d.statuses {
+	for _, s := range all {
 		if strings.Contains(strings.ToLower(s.repo.String()), strings.ToLower(d.filter)) {
 			out = append(out, s)
 		}
@@ -145,6 +201,29 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			}
 			return d.statuses[i].repo.String() < d.statuses[j].repo.String()
 		})
+		if n := len(d.visible()); d.cursor >= n {
+			d.cursor = 0
+		}
+		return d, nil
+	case orgReposLoadedMsg:
+		if !m.fromCache {
+			d.orgLoading = false
+		}
+		if m.err != nil {
+			// Keep whatever (cached) list we have; surface the error in the footer.
+			err := m.err
+			return d, func() tea.Msg { return errMsg{err: fmt.Errorf("listing repos for %s: %w", d.org, err)} }
+		}
+		// A slow, stale cache read must not clobber a fresh gh result — even an
+		// empty one (org legitimately has no non-favorite repos), so freshness is
+		// tracked by orgFetched, not by the current list length.
+		if m.fromCache && d.orgFetched {
+			return d, nil
+		}
+		if !m.fromCache {
+			d.orgFetched = true
+		}
+		d.orgRepos = d.dedupOrgRepos(m.repos)
 		if n := len(d.visible()); d.cursor >= n {
 			d.cursor = 0
 		}
@@ -207,7 +286,7 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 			d.cursor++
 		}
 	case "g":
-		return d, d.loadCmd()
+		return d, tea.Batch(d.loadCmd(), d.refreshOrgReposCmd())
 	case "enter":
 		if d.cursor < len(vis) {
 			repo := vis[d.cursor].repo
@@ -223,15 +302,27 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 type enterRepoMsg struct{ repo gh.RepoRef }
 
 func (d *dashboard) View() string {
-	if d.loading && len(d.statuses) == 0 {
-		return "Chargement des favoris…"
-	}
-	if len(d.favs) == 0 {
+	rows := d.visible()
+	if len(rows) == 0 {
+		if d.loading || d.orgLoading {
+			return "Chargement des repos…"
+		}
+		if d.filter != "" {
+			return "Aucun repo ne correspond au filtre « " + d.filter + " ».\n[esc] effacer le filtre"
+		}
+		if d.org != "" {
+			return fmt.Sprintf("Aucun repo pour %s.\nAjoute des favoris dans ~/.config/ghrun/config.yaml (clé favorites) ou appuie sur [g] pour rafraîchir.", d.org)
+		}
 		return "Aucun favori configuré.\nÉditez ~/.config/ghrun/config.yaml (clé favorites)."
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-40s %-26s %-8s %s\n", "REPO", "DERNIER RUN", "ÉTAT", "ACTIFS"))
-	for i, s := range d.visible() {
+	fmt.Fprintf(&b, "%-40s %-26s %-8s %s\n", "REPO", "DERNIER RUN", "ÉTAT", "ACTIFS")
+	sepDone := false
+	for i, s := range rows {
+		if s.isOrg && !sepDone {
+			fmt.Fprintf(&b, "  ── repos de %s ──\n", d.org)
+			sepDone = true
+		}
 		cursor := "  "
 		if i == d.cursor {
 			cursor = "▸ "
@@ -247,7 +338,7 @@ func (d *dashboard) View() string {
 		if s.active > 0 {
 			active = fmt.Sprintf("%d", s.active)
 		}
-		b.WriteString(fmt.Sprintf("%s%-40s %-26s %-8s %s\n", cursor, s.repo.String(), last, state, active))
+		fmt.Fprintf(&b, "%s%-40s %-26s %-8s %s\n", cursor, s.repo.String(), last, state, active)
 	}
 	if d.filtering {
 		b.WriteString("\nfiltre: " + d.filter + "▌")

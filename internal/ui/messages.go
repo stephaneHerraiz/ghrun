@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stephaneHerraiz/ghrun/internal/config"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
 
@@ -20,11 +21,60 @@ type namespacesLoadedMsg struct {
 }
 type orgSelectedMsg struct{ org string }
 
+// orgReposLoadedMsg carries the org's repositories. fromCache marks results read
+// from the local cache (a fast preview) vs. a fresh gh fetch, so a slow stale
+// cache read can't clobber freshly fetched data.
+type orgReposLoadedMsg struct {
+	repos     []gh.RepoRef
+	fromCache bool
+	err       error
+}
+
 // loadNamespacesCmd fetches the list of namespaces (user login + orgs) asynchronously.
 func loadNamespacesCmd(c GHClient) tea.Cmd {
 	return func() tea.Msg {
 		names, err := c.ListNamespaces()
 		return namespacesLoadedMsg{names: names, err: err}
+	}
+}
+
+// loadOrgReposCmd fetches the org's repositories from gh and writes them to the
+// local cache (best-effort) for instant display on the next launch.
+func loadOrgReposCmd(c GHClient, org, cachePath string) tea.Cmd {
+	return func() tea.Msg {
+		repos, err := c.ListOrgRepos(org)
+		if err != nil {
+			return orgReposLoadedMsg{err: err}
+		}
+		if cachePath != "" {
+			strs := make([]string, 0, len(repos))
+			for _, r := range repos {
+				strs = append(strs, r.String())
+			}
+			_ = config.SaveRepoCacheTo(cachePath, strs) // best-effort cache write
+		}
+		return orgReposLoadedMsg{repos: repos}
+	}
+}
+
+// loadCachedOrgReposCmd reads the cached org repo list for instant display while
+// loadOrgReposCmd refreshes from gh. Cache errors are non-fatal: an empty list.
+func loadCachedOrgReposCmd(cachePath string) tea.Cmd {
+	return func() tea.Msg {
+		if cachePath == "" {
+			return orgReposLoadedMsg{fromCache: true}
+		}
+		strs, err := config.LoadRepoCacheFrom(cachePath)
+		if err != nil {
+			return orgReposLoadedMsg{fromCache: true}
+		}
+		repos := make([]gh.RepoRef, 0, len(strs))
+		for _, s := range strs {
+			if r, err := gh.ParseRepoRef(s); err == nil {
+				repos = append(repos, r)
+			}
+		}
+		return orgReposLoadedMsg{repos: repos, fromCache: true}
 	}
 }
 

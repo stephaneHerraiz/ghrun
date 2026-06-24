@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -76,6 +77,113 @@ func TestDashboardFilter(t *testing.T) {
 	}
 	if len(d.visible()) != 3 {
 		t.Errorf("visible() len = %d, want 3 after clearing filter", len(d.visible()))
+	}
+}
+
+func TestDashboardIncludesOrgReposAsSelectableRows(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", Favorites: []string{"acme/fav"}})
+
+	// Favorite gets live status via dashboardLoadedMsg.
+	sc, _ := d.Update(dashboardLoadedMsg{statuses: []repoStatus{
+		{repo: gh.RepoRef{Owner: "acme", Name: "fav"}},
+	}})
+	d = sc.(*dashboard)
+
+	// Org repos arrive (from gh, not cache).
+	sc, _ = d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{
+		{Owner: "acme", Name: "zeta"},
+		{Owner: "acme", Name: "beta"},
+	}})
+	d = sc.(*dashboard)
+
+	vis := d.visible()
+	if len(vis) != 3 {
+		t.Fatalf("visible() len = %d, want 3 (1 fav + 2 org)", len(vis))
+	}
+	// Favorite first (not org), org repos after, sorted by name.
+	if vis[0].isOrg || vis[0].repo.Name != "fav" {
+		t.Errorf("row 0 = %+v, want favorite acme/fav", vis[0])
+	}
+	if !vis[1].isOrg || vis[1].repo.Name != "beta" {
+		t.Errorf("row 1 = %+v, want org acme/beta", vis[1])
+	}
+	if !vis[2].isOrg || vis[2].repo.Name != "zeta" {
+		t.Errorf("row 2 = %+v, want org acme/zeta", vis[2])
+	}
+}
+
+func TestDashboardDedupsOrgReposAgainstFavorites(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", Favorites: []string{"acme/alpha"}})
+
+	sc, _ := d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{
+		{Owner: "acme", Name: "alpha"}, // already a favorite → dropped
+		{Owner: "acme", Name: "beta"},
+	}})
+	d = sc.(*dashboard)
+
+	if len(d.orgRepos) != 1 || d.orgRepos[0].Name != "beta" {
+		t.Fatalf("orgRepos = %+v, want only acme/beta", d.orgRepos)
+	}
+}
+
+func TestDashboardStaleCacheDoesNotClobberFreshOrgRepos(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme"})
+
+	// Fresh gh result arrives first.
+	sc, _ := d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{{Owner: "acme", Name: "fresh"}}})
+	d = sc.(*dashboard)
+
+	// Then a (slower) stale cache message arrives — must NOT overwrite fresh data.
+	sc, _ = d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{{Owner: "acme", Name: "stale"}}, fromCache: true})
+	d = sc.(*dashboard)
+
+	if len(d.orgRepos) != 1 || d.orgRepos[0].Name != "fresh" {
+		t.Fatalf("orgRepos = %+v, want fresh data retained over stale cache", d.orgRepos)
+	}
+}
+
+func TestDashboardEmptyFreshResultNotClobberedByStaleCache(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme"})
+
+	// Fresh gh result wins the race and is legitimately empty (no org repos).
+	sc, _ := d.Update(orgReposLoadedMsg{repos: nil})
+	d = sc.(*dashboard)
+
+	// A slower stale cache read arrives with leftover repos — must be ignored.
+	sc, _ = d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{{Owner: "acme", Name: "deleted"}}, fromCache: true})
+	d = sc.(*dashboard)
+
+	if len(d.orgRepos) != 0 {
+		t.Fatalf("orgRepos = %+v, want empty (fresh empty result must win over stale cache)", d.orgRepos)
+	}
+}
+
+func TestDashboardEnterOrgRepoEmitsEnterRepoMsg(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme"})
+	sc, _ := d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{{Owner: "acme", Name: "tool"}}})
+	d = sc.(*dashboard)
+
+	// Cursor on the single org row, press Enter.
+	_, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("enter")})
+	if cmd == nil {
+		t.Fatal("Enter on an org repo should emit a command")
+	}
+	msg, ok := cmd().(enterRepoMsg)
+	if !ok {
+		t.Fatalf("cmd returned %T, want enterRepoMsg", cmd())
+	}
+	if msg.repo.Name != "tool" {
+		t.Errorf("entered repo = %s, want acme/tool", msg.repo.String())
+	}
+}
+
+func TestDashboardViewShowsOrgSeparator(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme"})
+	sc, _ := d.Update(orgReposLoadedMsg{repos: []gh.RepoRef{{Owner: "acme", Name: "tool"}}})
+	d = sc.(*dashboard)
+	v := d.View()
+	if !strings.Contains(v, "acme") || !strings.Contains(v, "repos de") {
+		t.Fatalf("view should show the org separator; got:\n%s", v)
 	}
 }
 
