@@ -117,6 +117,26 @@ func TestFilteringDashboardSwallowsGlobalKeys(t *testing.T) {
 	}
 }
 
+func TestAppPersistsFavoritesChange(t *testing.T) {
+	a := newTestApp()
+	var saved config.Config
+	called := false
+	a.saveConfig = func(c config.Config) error { saved = c; called = true; return nil }
+
+	model, _ := a.Update(favoritesChangedMsg{favorites: []string{"acme/tool"}})
+	got := model.(App)
+
+	if !called {
+		t.Fatal("favoritesChangedMsg should trigger a config save")
+	}
+	if len(saved.Favorites) != 1 || saved.Favorites[0] != "acme/tool" {
+		t.Fatalf("saved favorites = %v, want [acme/tool]", saved.Favorites)
+	}
+	if len(got.cfg.Favorites) != 1 || got.cfg.Favorites[0] != "acme/tool" {
+		t.Fatalf("in-memory favorites = %v, want [acme/tool]", got.cfg.Favorites)
+	}
+}
+
 func TestNewAppShowsOrgPickerWhenNoDefaultOrg(t *testing.T) {
 	// empty default org → picker
 	a := NewApp(nil, config.Config{})

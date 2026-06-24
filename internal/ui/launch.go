@@ -201,7 +201,9 @@ func (l *launch) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 				l.focusCurrent()
 			}
 			return l, nil
-		case "ctrl+s":
+		case "enter", "ctrl+s":
+			// Enter is the reliable launch key; ctrl+s is kept as a fallback but
+			// many terminals swallow it via XON/XOFF flow control.
 			return l.submit()
 		}
 		if len(l.fields) == 0 {
@@ -309,7 +311,7 @@ func (l *launch) View() string {
 		if len(l.missing) > 0 {
 			b.WriteString(errStyle.Render("\nChamps requis manquants: "+strings.Join(l.missing, ", ")) + "\n")
 		}
-		b.WriteString("\n[ctrl+s] lancer  ·  ←/→ change choix/booléen")
+		b.WriteString("\n[Enter] lancer  ·  ↑/↓ champ  ·  ←/→ change choix/booléen")
 	case phaseSubmitting:
 		b.WriteString("Lancement en cours, recherche du run…")
 	}
