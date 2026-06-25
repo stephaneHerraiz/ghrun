@@ -109,6 +109,81 @@ func TestDashboardFilter(t *testing.T) {
 	}
 }
 
+func TestDashboardScrollExitsFilterModeKeepingFilter(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{Favorites: []string{"o/api", "o/web", "o/cli"}})
+	sc, _ := d.Update(dashboardLoadedMsg{statuses: []repoStatus{
+		{repo: gh.RepoRef{Owner: "o", Name: "api"}},
+		{repo: gh.RepoRef{Owner: "o", Name: "web"}},
+		{repo: gh.RepoRef{Owner: "o", Name: "cli"}},
+	}})
+	d = sc.(*dashboard)
+
+	// Enter filter mode and narrow to repos containing "i": api, cli.
+	sc, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	d = sc.(*dashboard)
+	sc, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	d = sc.(*dashboard)
+	if !d.capturingInput() {
+		t.Fatal("expected filter mode after typing")
+	}
+	if len(d.visible()) != 2 {
+		t.Fatalf("visible() = %d, want 2 (api, cli)", len(d.visible()))
+	}
+
+	// Scrolling down must leave text-entry (so contextual keys work again) while
+	// keeping the filter applied, and move the cursor within the filtered list.
+	sc, _ = d.Update(tea.KeyMsg{Type: tea.KeyDown})
+	d = sc.(*dashboard)
+	if d.capturingInput() {
+		t.Error("scrolling should exit filter mode (capturingInput == false)")
+	}
+	if d.filter != "i" {
+		t.Errorf("filter should be kept after scroll, got %q", d.filter)
+	}
+	if len(d.visible()) != 2 || d.cursor != 1 {
+		t.Fatalf("filtered list should persist and cursor move: visible=%d cursor=%d, want 2/1", len(d.visible()), d.cursor)
+	}
+
+	// 'f' now favorites the highlighted repo (cli) instead of being swallowed.
+	cli := d.visible()[d.cursor].repo
+	_, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	if cmd == nil {
+		t.Fatal("f should trigger a favorite-toggle command after exiting filter mode")
+	}
+	for _, f := range d.favs {
+		if f.String() == cli.String() {
+			t.Errorf("%s should have been un-favorited by f", cli.String())
+		}
+	}
+}
+
+func TestDashboardWheelExitsFilterModeKeepingFilter(t *testing.T) {
+	d, _ := newDashboard(nil, config.Config{Favorites: []string{"o/api", "o/web"}})
+	sc, _ := d.Update(dashboardLoadedMsg{statuses: []repoStatus{
+		{repo: gh.RepoRef{Owner: "o", Name: "api"}},
+		{repo: gh.RepoRef{Owner: "o", Name: "web"}},
+	}})
+	d = sc.(*dashboard)
+
+	sc, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	d = sc.(*dashboard)
+	sc, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	d = sc.(*dashboard)
+	if !d.capturingInput() {
+		t.Fatal("expected filter mode after typing")
+	}
+
+	// A mouse wheel scroll exits filter mode but keeps the filter applied.
+	sc, _ = d.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+	d = sc.(*dashboard)
+	if d.capturingInput() {
+		t.Error("wheel scroll should exit filter mode")
+	}
+	if d.filter != "a" {
+		t.Errorf("filter should be kept after wheel scroll, got %q", d.filter)
+	}
+}
+
 func TestDashboardIncludesOrgReposAsSelectableRows(t *testing.T) {
 	d, _ := newDashboard(nil, config.Config{DefaultOrg: "acme", Favorites: []string{"acme/fav"}})
 

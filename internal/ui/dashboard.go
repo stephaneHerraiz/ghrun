@@ -244,6 +244,11 @@ func (d *dashboard) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		d.width = m.Width
 		return d, nil
 	case tea.MouseMsg:
+		// A wheel scroll while filtering leaves text-entry (keeping the filter)
+		// so contextual keys act on the filtered list, mirroring arrow scrolling.
+		if d.filtering && (m.Button == tea.MouseButtonWheelUp || m.Button == tea.MouseButtonWheelDown) {
+			d.filtering = false
+		}
 		d.handleWheel(m, len(d.visible()))
 		return d, nil
 	case tea.KeyMsg:
@@ -281,8 +286,12 @@ func (d *dashboard) handleKey(m tea.KeyMsg) (Screen, tea.Cmd) {
 				d.cursor = 0
 			}
 		case tea.KeyUp:
+			// Scrolling leaves text-entry (keeping the filter applied) so
+			// contextual keys like [f] act on the filtered list again.
+			d.filtering = false
 			d.up()
 		case tea.KeyDown:
+			d.filtering = false
 			d.down(len(d.visible())) // recompute after any filter change
 		}
 		d.ensureVisible(len(d.visible()))
