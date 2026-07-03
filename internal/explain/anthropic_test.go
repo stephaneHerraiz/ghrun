@@ -52,6 +52,9 @@ func TestAnthropicExplainerSendsPromptAndParsesText(t *testing.T) {
 	if got["max_tokens"] != float64(2048) {
 		t.Errorf("max_tokens = %v", got["max_tokens"])
 	}
+	if th, ok := got["thinking"].(map[string]any); !ok || th["type"] != "disabled" {
+		t.Errorf("thinking = %v, want disabled", got["thinking"])
+	}
 	raw, _ := json.Marshal(got)
 	if !strings.Contains(string(raw), "GitHub Actions run failed") {
 		t.Errorf("system prompt missing from request: %s", raw)

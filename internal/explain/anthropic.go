@@ -33,7 +33,11 @@ func (a *AnthropicExplainer) Explain(ctx context.Context, req ExplainRequest) (s
 	msg, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(a.model),
 		MaxTokens: maxExplanationTokens,
-		System:    []anthropic.TextBlockParam{{Text: SystemPrompt(req.Language)}},
+		// Explanations are short and factual: disable thinking explicitly so
+		// it cannot silently eat the 2048-token budget on models where an
+		// omitted config defaults to adaptive thinking.
+		Thinking: anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
+		System:   []anthropic.TextBlockParam{{Text: SystemPrompt(req.Language)}},
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(UserPrompt(req))),
 		},
