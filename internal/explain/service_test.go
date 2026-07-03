@@ -137,7 +137,8 @@ func TestAskClaudeGeneratesAndMemorizes(t *testing.T) {
 
 func TestAskClaudeTruncatesLogFromEnd(t *testing.T) {
 	ex := &fakeExplainer{name: "x", out: "ok"}
-	svc := NewService(&fakeEmbedder{vec: []float32{1}}, &Chain{Explainers: []Explainer{ex}}, &fakeStore{},
+	st := &fakeStore{}
+	svc := NewService(&fakeEmbedder{vec: []float32{1}}, &Chain{Explainers: []Explainer{ex}}, st,
 		Options{Threshold: 0.86, MaxLogBytes: 100, Language: "English"})
 	long := strings.Repeat("early line\n", 50) + "THE END MARKER"
 	if _, err := svc.AskClaude(context.Background(), ExplainRequest{Log: long}); err != nil {
@@ -148,6 +149,12 @@ func TestAskClaudeTruncatesLogFromEnd(t *testing.T) {
 	}
 	if !strings.Contains(ex.gotReq.Log, "THE END MARKER") {
 		t.Errorf("truncation must keep the end: %q", ex.gotReq.Log)
+	}
+	// Cache correctness: the memorized signature must be computed on the FULL
+	// log (what ResolveLocal will see next time), not the truncated one.
+	_, wantSig := Prepare(long)
+	if len(st.upserts) != 1 || st.upserts[0].Signature != wantSig {
+		t.Errorf("upsert must sign the full log: %+v", st.upserts)
 	}
 }
 
