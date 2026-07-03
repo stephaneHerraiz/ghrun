@@ -81,6 +81,9 @@ func (e *explainScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		return e, resolveLocalCmd(e.svc, e.logText)
 
 	case explainLocalMsg:
+		if e.phase != phaseSearching {
+			return e, nil // stale result from a superseded search
+		}
 		if m.err != nil {
 			e.warnText = "knowledge base unavailable: " + m.err.Error()
 			e.phase = phaseAsking
@@ -100,6 +103,9 @@ func (e *explainScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		return e, askClaudeCmd(e.svc, e.request())
 
 	case explainClaudeMsg:
+		if e.phase != phaseAsking {
+			return e, nil // stale result from a superseded request
+		}
 		if m.err != nil {
 			if e.guess != "" {
 				e.phase = phaseDone
@@ -131,9 +137,10 @@ func (e *explainScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	case tea.KeyMsg:
 		switch m.String() {
 		case "r":
-			if e.logText != "" && e.phase != phaseAsking {
+			if e.logText != "" && (e.phase == phaseDone || e.phase == phaseFailed) {
 				e.phase = phaseAsking
 				e.badge = ""
+				e.warnText = ""
 				return e, askClaudeCmd(e.svc, e.request())
 			}
 			return e, nil

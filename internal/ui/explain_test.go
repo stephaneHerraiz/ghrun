@@ -175,3 +175,47 @@ func TestExplainLogsKeyPushesLogs(t *testing.T) {
 		t.Errorf("title = %q", e.Title())
 	}
 }
+
+func TestExplainRegenerateIgnoredWhileSearching(t *testing.T) {
+	e := newTestExplain(&fakeExplainService{})
+	e.Update(explainLogLoadedMsg{text: "Error: boom"}) // -> phaseSearching
+	s, cmd := e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if cmd != nil {
+		t.Error("'r' must be ignored while the local search is in flight")
+	}
+	if !strings.Contains(s.View(), "Searching local knowledge") {
+		t.Errorf("view = %q", s.View())
+	}
+}
+
+func TestExplainStaleLocalResultIgnored(t *testing.T) {
+	svc := &fakeExplainService{claude: explain.ClaudeResult{Explanation: "fresh", Source: "claude-sonnet-5"}}
+	e := newTestExplain(svc)
+	e.Update(explainLogLoadedMsg{text: "Error: boom"})
+	e.Update(explainLocalMsg{res: explain.LocalResult{}}) // miss -> phaseAsking
+	// A duplicate/stale local result must not clobber the asking state.
+	s, cmd := e.Update(explainLocalMsg{res: explain.LocalResult{Found: true, Explanation: "stale", Similarity: 0.99}})
+	if cmd != nil {
+		t.Error("stale local result must not trigger anything")
+	}
+	if !strings.Contains(s.View(), "Asking claude") {
+		t.Errorf("view = %q", s.View())
+	}
+}
+
+func TestExplainRegenerateClearsStaleWarning(t *testing.T) {
+	svc := &fakeExplainService{claude: explain.ClaudeResult{Explanation: "v2", Source: "claude-sonnet-5"}}
+	e := newTestExplain(svc)
+	e.Update(explainLogLoadedMsg{text: "Error: boom"})
+	e.Update(explainLocalMsg{res: explain.LocalResult{Explanation: "old guess", Similarity: 0.5}})
+	e.Update(explainClaudeMsg{err: errorString("api down")}) // best guess + warning
+	s, cmd := e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if cmd == nil {
+		t.Fatal("'r' from best-guess state must regenerate")
+	}
+	s, _ = s.Update(cmd())
+	v := s.View()
+	if !strings.Contains(v, "v2") || strings.Contains(v, "api down") {
+		t.Errorf("stale warning survived regenerate: %q", v)
+	}
+}
