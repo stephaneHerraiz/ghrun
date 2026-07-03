@@ -41,6 +41,10 @@ var volatileRes = []struct {
 	// Directories are volatile, basenames are not: keep the filename so two
 	// failures on different files don't collide on the same signature.
 	{regexp.MustCompile(`/(?:home|tmp|__w|__t|var|usr|opt|Users|runner|github)[\w@./-]*/`), "<PATH>/"},
+	// mktemp-style random leaves (tmp.XXXXXXXXXX, tmpXXXXXX) are volatile even
+	// though they sit in basename position. Other random leaf names fall
+	// through to the embedding-similarity path, which tolerates them.
+	{regexp.MustCompile(`<PATH>/tmp\.?[A-Za-z0-9]{6,}\b`), "<PATH>/<TMP>"},
 	{regexp.MustCompile(`:\d+(:\d+)?\b`), "<LN>"},
 	{regexp.MustCompile(`\b\d{5,}\b`), "<NUM>"},
 }

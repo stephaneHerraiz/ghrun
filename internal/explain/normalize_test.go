@@ -133,3 +133,13 @@ func TestPrepareSignatureDistinguishesFilenames(t *testing.T) {
 		t.Error("same basename in a different directory must share the signature")
 	}
 }
+
+func TestPrepareSignatureMasksTempLeaves(t *testing.T) {
+	logA := "rm: cannot remove '/tmp/tmp.a1B2c3D4E5': Directory not empty\nError: cleanup failed"
+	logB := "rm: cannot remove '/tmp/tmp.Z9y8X7w6V5': Directory not empty\nError: cleanup failed"
+	_, sigA := Prepare(logA)
+	_, sigB := Prepare(logB)
+	if sigA != sigB {
+		t.Error("mktemp-style leaves must normalize to the same signature")
+	}
+}
