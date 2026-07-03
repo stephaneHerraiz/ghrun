@@ -11,12 +11,32 @@ import (
 
 // Config holds user settings for ghrun.
 type Config struct {
-	DefaultOrg             string   `yaml:"defaultOrg"`
-	RefreshIntervalSeconds int      `yaml:"refreshIntervalSeconds"`
-	RunListLimit           int      `yaml:"runListLimit"`
-	ListPageSize           int      `yaml:"listPageSize"` // max rows shown at once in any list
-	Favorites              []string `yaml:"favorites"`    // "owner/name"
+	DefaultOrg             string        `yaml:"defaultOrg"`
+	RefreshIntervalSeconds int           `yaml:"refreshIntervalSeconds"`
+	RunListLimit           int           `yaml:"runListLimit"`
+	ListPageSize           int           `yaml:"listPageSize"` // max rows shown at once in any list
+	Favorites              []string      `yaml:"favorites"`    // "owner/name"
+	Explain                ExplainConfig `yaml:"explain"`
 }
+
+// ExplainConfig configures the run-failure explanation feature (local RAG +
+// Anthropic API / claude CLI). Every field is optional with a default.
+type ExplainConfig struct {
+	Enabled             *bool   `yaml:"enabled,omitempty"` // nil means enabled
+	OllamaURL           string  `yaml:"ollamaURL"`
+	EmbeddingModel      string  `yaml:"embeddingModel"`
+	SimilarityThreshold float64 `yaml:"similarityThreshold"`
+	AnthropicAPIKey     string  `yaml:"anthropicAPIKey"` // empty: read ANTHROPIC_API_KEY env
+	Model               string  `yaml:"model"`
+	ClaudeCmd           string  `yaml:"claudeCmd"`
+	StorePath           string  `yaml:"storePath"` // empty: <config dir>/ghrun/explain-db
+	MaxLogBytes         int     `yaml:"maxLogBytes"`
+	Language            string  `yaml:"language"`
+}
+
+// IsEnabled reports whether explain is on. An unset flag means enabled, so
+// existing config files without an explain section get the feature.
+func (e ExplainConfig) IsEnabled() bool { return e.Enabled == nil || *e.Enabled }
 
 // Default returns the baseline configuration.
 func Default() Config {
@@ -24,6 +44,15 @@ func Default() Config {
 		RefreshIntervalSeconds: 4,
 		RunListLimit:           30,
 		ListPageSize:           20,
+		Explain: ExplainConfig{
+			OllamaURL:           "http://localhost:11434",
+			EmbeddingModel:      "nomic-embed-text",
+			SimilarityThreshold: 0.86,
+			Model:               "claude-sonnet-5",
+			ClaudeCmd:           "claude",
+			MaxLogBytes:         65536,
+			Language:            "English",
+		},
 	}
 }
 
@@ -38,6 +67,27 @@ func applyDefaults(c Config) Config {
 	}
 	if c.ListPageSize == 0 {
 		c.ListPageSize = d.ListPageSize
+	}
+	if c.Explain.OllamaURL == "" {
+		c.Explain.OllamaURL = d.Explain.OllamaURL
+	}
+	if c.Explain.EmbeddingModel == "" {
+		c.Explain.EmbeddingModel = d.Explain.EmbeddingModel
+	}
+	if c.Explain.SimilarityThreshold == 0 {
+		c.Explain.SimilarityThreshold = d.Explain.SimilarityThreshold
+	}
+	if c.Explain.Model == "" {
+		c.Explain.Model = d.Explain.Model
+	}
+	if c.Explain.ClaudeCmd == "" {
+		c.Explain.ClaudeCmd = d.Explain.ClaudeCmd
+	}
+	if c.Explain.MaxLogBytes == 0 {
+		c.Explain.MaxLogBytes = d.Explain.MaxLogBytes
+	}
+	if c.Explain.Language == "" {
+		c.Explain.Language = d.Explain.Language
 	}
 	return c
 }
@@ -97,6 +147,16 @@ func ResolveCachePath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(base, "ghrun", "repos.json"), nil
+}
+
+// ResolveExplainStorePath returns the default explain knowledge-base
+// directory (used when explain.storePath is empty).
+func ResolveExplainStorePath() (string, error) {
+	base, err := resolveBase("XDG_CONFIG_HOME", ".config")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "ghrun", "explain-db"), nil
 }
 
 // Load reads config from the resolved path.

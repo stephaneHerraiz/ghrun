@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -37,6 +38,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		RunListLimit:           50,
 		ListPageSize:           25,
 		Favorites:              []string{"stephaneHerraiz/ghrun"},
+		Explain:                Default().Explain,
 	}
 	if err := SaveTo(p, in); err != nil {
 		t.Fatalf("SaveTo: %v", err)
@@ -77,5 +79,63 @@ func TestRepoCacheRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, in) {
 		t.Errorf("cache round trip = %v, want %v", got, in)
+	}
+}
+
+func TestExplainDefaults(t *testing.T) {
+	c := Default().Explain
+	if !c.IsEnabled() {
+		t.Error("explain must default to enabled")
+	}
+	if c.OllamaURL != "http://localhost:11434" || c.EmbeddingModel != "nomic-embed-text" ||
+		c.SimilarityThreshold != 0.86 || c.Model != "claude-sonnet-5" ||
+		c.ClaudeCmd != "claude" || c.MaxLogBytes != 65536 || c.Language != "English" {
+		t.Errorf("defaults = %+v", c)
+	}
+}
+
+func TestExplainSectionAbsentGetsDefaults(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte("defaultOrg: acme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadFrom(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Explain.IsEnabled() || c.Explain.SimilarityThreshold != 0.86 {
+		t.Errorf("explain = %+v", c.Explain)
+	}
+}
+
+func TestExplainPartialSectionFillsDefaults(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := "explain:\n  enabled: false\n  model: claude-opus-4-8\n"
+	if err := os.WriteFile(p, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadFrom(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Explain.IsEnabled() {
+		t.Error("enabled: false must stick")
+	}
+	if c.Explain.Model != "claude-opus-4-8" {
+		t.Errorf("model = %q", c.Explain.Model)
+	}
+	if c.Explain.OllamaURL != "http://localhost:11434" || c.Explain.MaxLogBytes != 65536 {
+		t.Errorf("unset fields must get defaults: %+v", c.Explain)
+	}
+}
+
+func TestResolveExplainStorePath(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/xdg")
+	p, err := ResolveExplainStorePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != "/xdg/ghrun/explain-db" {
+		t.Errorf("path = %q", p)
 	}
 }
