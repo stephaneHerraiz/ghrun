@@ -49,7 +49,7 @@ func newTestExplain(svc ExplainService) *explainScreen {
 
 func TestExplainLogLoadedTriggersLocalSearch(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	s, cmd := e.Update(explainLogLoadedMsg{text: "Error: boom"})
+	s, cmd := e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
 	if cmd == nil {
 		t.Fatal("log loaded must trigger the local search")
 	}
@@ -60,7 +60,7 @@ func TestExplainLogLoadedTriggersLocalSearch(t *testing.T) {
 
 func TestExplainLogErrorShown(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	s, _ := e.Update(explainLogLoadedMsg{err: errorString("no logs available")})
+	s, _ := e.Update(explainLogLoadedMsg{id: 5, err: errorString("no logs available")})
 	if !strings.Contains(s.View(), "no logs available") {
 		t.Errorf("view = %q", s.View())
 	}
@@ -68,8 +68,8 @@ func TestExplainLogErrorShown(t *testing.T) {
 
 func TestExplainLocalHitShowsBadgeAndText(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	s, cmd := e.Update(explainLocalMsg{res: explain.LocalResult{
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	s, cmd := e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{
 		Found: true, Explanation: "Root cause: OOM.", Similarity: 0.92,
 	}})
 	if cmd != nil {
@@ -83,8 +83,8 @@ func TestExplainLocalHitShowsBadgeAndText(t *testing.T) {
 
 func TestExplainExactHitBadge(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	s, _ := e.Update(explainLocalMsg{res: explain.LocalResult{Found: true, Exact: true, Explanation: "x", Similarity: 1}})
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	s, _ := e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{Found: true, Exact: true, Explanation: "x", Similarity: 1}})
 	if !strings.Contains(s.View(), "🧠 local · exact") {
 		t.Errorf("view = %q", s.View())
 	}
@@ -93,8 +93,8 @@ func TestExplainExactHitBadge(t *testing.T) {
 func TestExplainMissAsksClaude(t *testing.T) {
 	svc := &fakeExplainService{claude: explain.ClaudeResult{Explanation: "fresh", Source: "claude-sonnet-5"}}
 	e := newTestExplain(svc)
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	s, cmd := e.Update(explainLocalMsg{res: explain.LocalResult{}})
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	s, cmd := e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{}})
 	if cmd == nil {
 		t.Fatal("a miss must ask claude")
 	}
@@ -118,8 +118,8 @@ func TestExplainMissAsksClaude(t *testing.T) {
 
 func TestExplainRAGDisabledWarns(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	s, cmd := e.Update(explainLocalMsg{res: explain.LocalResult{RAGDisabled: true}})
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	s, cmd := e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{RAGDisabled: true}})
 	if cmd == nil {
 		t.Fatal("RAG disabled must still ask claude")
 	}
@@ -130,9 +130,9 @@ func TestExplainRAGDisabledWarns(t *testing.T) {
 
 func TestExplainClaudeErrorFallsBackToBestGuess(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	e.Update(explainLocalMsg{res: explain.LocalResult{Explanation: "old similar failure", Similarity: 0.55}})
-	s, _ := e.Update(explainClaudeMsg{err: errorString("all explainers down")})
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{Explanation: "old similar failure", Similarity: 0.55}})
+	s, _ := e.Update(explainClaudeMsg{id: 5, err: errorString("all explainers down")})
 	v := s.View()
 	if !strings.Contains(v, "old similar failure") || !strings.Contains(v, "best guess · 55%") {
 		t.Errorf("view = %q", v)
@@ -141,9 +141,9 @@ func TestExplainClaudeErrorFallsBackToBestGuess(t *testing.T) {
 
 func TestExplainClaudeErrorWithoutGuess(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	e.Update(explainLocalMsg{res: explain.LocalResult{}})
-	s, _ := e.Update(explainClaudeMsg{err: errorString("all explainers down")})
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{}})
+	s, _ := e.Update(explainClaudeMsg{id: 5, err: errorString("all explainers down")})
 	v := s.View()
 	if !strings.Contains(v, "all explainers down") || !strings.Contains(v, "l") {
 		t.Errorf("view must show the error and point at raw logs: %q", v)
@@ -153,8 +153,8 @@ func TestExplainClaudeErrorWithoutGuess(t *testing.T) {
 func TestExplainRegenerateKey(t *testing.T) {
 	svc := &fakeExplainService{claude: explain.ClaudeResult{Explanation: "v2", Source: "claude-sonnet-5"}}
 	e := newTestExplain(svc)
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	e.Update(explainLocalMsg{res: explain.LocalResult{Found: true, Explanation: "v1", Similarity: 0.9}})
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{Found: true, Explanation: "v1", Similarity: 0.9}})
 	s, cmd := e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	if cmd == nil {
 		t.Fatal("'r' must regenerate")
@@ -166,7 +166,7 @@ func TestExplainRegenerateKey(t *testing.T) {
 
 func TestExplainLogsKeyPushesLogs(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
 	_, cmd := e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
 	if cmd == nil {
 		t.Fatal("'l' must push the logs screen")
@@ -178,7 +178,7 @@ func TestExplainLogsKeyPushesLogs(t *testing.T) {
 
 func TestExplainRegenerateIgnoredWhileSearching(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
-	e.Update(explainLogLoadedMsg{text: "Error: boom"}) // -> phaseSearching
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"}) // -> phaseSearching
 	s, cmd := e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	if cmd != nil {
 		t.Error("'r' must be ignored while the local search is in flight")
@@ -191,10 +191,10 @@ func TestExplainRegenerateIgnoredWhileSearching(t *testing.T) {
 func TestExplainStaleLocalResultIgnored(t *testing.T) {
 	svc := &fakeExplainService{claude: explain.ClaudeResult{Explanation: "fresh", Source: "claude-sonnet-5"}}
 	e := newTestExplain(svc)
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	e.Update(explainLocalMsg{res: explain.LocalResult{}}) // miss -> phaseAsking
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{}}) // miss -> phaseAsking
 	// A duplicate/stale local result must not clobber the asking state.
-	s, cmd := e.Update(explainLocalMsg{res: explain.LocalResult{Found: true, Explanation: "stale", Similarity: 0.99}})
+	s, cmd := e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{Found: true, Explanation: "stale", Similarity: 0.99}})
 	if cmd != nil {
 		t.Error("stale local result must not trigger anything")
 	}
@@ -206,9 +206,9 @@ func TestExplainStaleLocalResultIgnored(t *testing.T) {
 func TestExplainRegenerateClearsStaleWarning(t *testing.T) {
 	svc := &fakeExplainService{claude: explain.ClaudeResult{Explanation: "v2", Source: "claude-sonnet-5"}}
 	e := newTestExplain(svc)
-	e.Update(explainLogLoadedMsg{text: "Error: boom"})
-	e.Update(explainLocalMsg{res: explain.LocalResult{Explanation: "old guess", Similarity: 0.5}})
-	e.Update(explainClaudeMsg{err: errorString("api down")}) // best guess + warning
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{Explanation: "old guess", Similarity: 0.5}})
+	e.Update(explainClaudeMsg{id: 5, err: errorString("api down")}) // best guess + warning
 	s, cmd := e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	if cmd == nil {
 		t.Fatal("'r' from best-guess state must regenerate")
@@ -217,5 +217,20 @@ func TestExplainRegenerateClearsStaleWarning(t *testing.T) {
 	v := s.View()
 	if !strings.Contains(v, "v2") || strings.Contains(v, "api down") {
 		t.Errorf("stale warning survived regenerate: %q", v)
+	}
+}
+
+func TestExplainForeignRunMsgDropped(t *testing.T) {
+	svc := &fakeExplainService{claude: explain.ClaudeResult{Explanation: "fresh", Source: "claude-sonnet-5"}}
+	e := newTestExplain(svc)
+	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{}}) // miss -> asking
+	s, cmd := e.Update(explainClaudeMsg{id: 99, res: explain.ClaudeResult{Explanation: "other run's answer", Source: "x"}})
+	if cmd != nil {
+		t.Error("foreign-run message must be inert")
+	}
+	v := s.View()
+	if strings.Contains(v, "other run's answer") || !strings.Contains(v, "Asking claude") {
+		t.Errorf("view = %q", v)
 	}
 }

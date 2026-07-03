@@ -50,3 +50,19 @@ func TestBuildExplainServiceEnabled(t *testing.T) {
 		t.Fatal("enabled explain must yield a service")
 	}
 }
+
+func TestExpandHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := expandHome("~/x/y"); got != filepath.Join(home, "x", "y") {
+		t.Errorf("expandHome(~/x/y) = %q", got)
+	}
+	if got := expandHome("/abs/path"); got != "/abs/path" {
+		t.Errorf("absolute path changed: %q", got)
+	}
+	if got := expandHome(""); got != "" {
+		t.Errorf("empty path changed: %q", got)
+	}
+}

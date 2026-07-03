@@ -210,9 +210,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case explainLogLoadedMsg, explainLocalMsg, explainClaudeMsg:
 		// Explain results must reach the explain screen even when it is
 		// buried (e.g. raw logs were opened while claude was thinking) —
-		// data messages otherwise only reach the top screen.
+		// data messages otherwise only reach the top screen. Matching on the
+		// run id keeps a late result from a popped screen out of a newer one.
+		id := explainMsgID(msg)
 		for i := len(a.stack) - 1; i >= 0; i-- {
-			if _, ok := a.stack[i].(*explainScreen); ok {
+			if es, ok := a.stack[i].(*explainScreen); ok && es.id == id {
 				ns, cmd := a.stack[i].Update(msg)
 				a.stack[i] = ns
 				return a, cmd

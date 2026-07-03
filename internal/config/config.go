@@ -56,7 +56,7 @@ func Default() Config {
 	}
 }
 
-// applyDefaults fills zero-valued numeric fields with their defaults.
+// applyDefaults fills zero-valued fields with their defaults.
 func applyDefaults(c Config) Config {
 	d := Default()
 	if c.RefreshIntervalSeconds == 0 {

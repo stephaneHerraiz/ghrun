@@ -236,10 +236,10 @@ func TestExplainMsgsReachBuriedExplainScreen(t *testing.T) {
 	a := NewApp(nil, config.Config{DefaultOrg: "acme"}).WithExplainService(&fakeExplainService{})
 	es, _ := newExplain(nil, &fakeExplainService{}, gh.RepoRef{Owner: "o", Name: "r"}, 5, failedDetail())
 	m, _ := a.Update(pushMsg{screen: es})
-	es.Update(explainLogLoadedMsg{text: "Error: boom"})
-	es.Update(explainLocalMsg{res: explain.LocalResult{}}) // miss -> asking claude
+	es.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	es.Update(explainLocalMsg{id: 5, res: explain.LocalResult{}}) // miss -> asking claude
 	m, _ = m.(App).Update(pushMsg{screen: stubScreen{title: "logs"}})
-	m, _ = m.(App).Update(explainClaudeMsg{res: explain.ClaudeResult{Explanation: "late answer", Source: "claude-sonnet-5"}})
+	m, _ = m.(App).Update(explainClaudeMsg{id: 5, res: explain.ClaudeResult{Explanation: "late answer", Source: "claude-sonnet-5"}})
 	a2 := m.(App)
 	buried, ok := a2.stack[len(a2.stack)-2].(*explainScreen)
 	if !ok {

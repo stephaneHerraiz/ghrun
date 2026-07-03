@@ -3000,3 +3000,4 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - `chain.go` returns a `ChainResult{Explanation, Source}` instead of implementing the `Explainer` interface itself: the UI badge needs to know **which** explainer answered, which a bare `(string, error)` cannot convey.
 - `Entry` carries its `Embedding` so `Store.Upsert(e Entry)` can keep the spec's single-argument signature.
 - `explain.enabled` uses a `*bool` (`nil` = enabled) so existing config files without the section get the feature without edits.
+- `r` (regenerate) only fires from a terminal phase (`phaseDone`/`phaseFailed`) instead of the spec's « quel que soit l'état courant » : an any-state regenerate races the in-flight async pipeline (a stale local result could clobber the fresh claude answer). The pipeline is strictly sequential by design since the Task 9 review.

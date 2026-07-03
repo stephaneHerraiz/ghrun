@@ -118,7 +118,9 @@ func (s *Service) memorize(ctx context.Context, fullLog string, req ExplainReque
 }
 
 // truncateTail keeps the last max bytes of s (errors live at the end of a
-// log), dropping the first partial line for cleanliness.
+// log), then drops everything up to and including the first newline so the
+// result starts on a line boundary (when the cut already lands on a boundary
+// this sacrifices one complete line, which is fine for a truncation heuristic).
 func truncateTail(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s

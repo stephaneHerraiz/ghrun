@@ -71,6 +71,9 @@ func (e *explainScreen) setContent(text string) {
 func (e *explainScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case explainLogLoadedMsg:
+		if m.id != e.id {
+			return e, nil // message from another run's screen
+		}
 		if m.err != nil {
 			e.phase = phaseFailed
 			e.errText = m.err.Error()
@@ -78,16 +81,19 @@ func (e *explainScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		}
 		e.logText = m.text
 		e.phase = phaseSearching
-		return e, resolveLocalCmd(e.svc, e.logText)
+		return e, resolveLocalCmd(e.svc, e.id, e.logText)
 
 	case explainLocalMsg:
+		if m.id != e.id {
+			return e, nil // message from another run's screen
+		}
 		if e.phase != phaseSearching {
 			return e, nil // stale result from a superseded search
 		}
 		if m.err != nil {
 			e.warnText = "knowledge base unavailable: " + m.err.Error()
 			e.phase = phaseAsking
-			return e, askClaudeCmd(e.svc, e.request())
+			return e, askClaudeCmd(e.svc, e.id, e.request())
 		}
 		if m.res.RAGDisabled {
 			e.warnText = "knowledge base disabled (Ollama unreachable)"
@@ -100,9 +106,12 @@ func (e *explainScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		}
 		e.guess, e.guessSim = m.res.Explanation, m.res.Similarity
 		e.phase = phaseAsking
-		return e, askClaudeCmd(e.svc, e.request())
+		return e, askClaudeCmd(e.svc, e.id, e.request())
 
 	case explainClaudeMsg:
+		if m.id != e.id {
+			return e, nil // message from another run's screen
+		}
 		if e.phase != phaseAsking {
 			return e, nil // stale result from a superseded request
 		}
@@ -141,7 +150,7 @@ func (e *explainScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 				e.phase = phaseAsking
 				e.badge = ""
 				e.warnText = ""
-				return e, askClaudeCmd(e.svc, e.request())
+				return e, askClaudeCmd(e.svc, e.id, e.request())
 			}
 			return e, nil
 		case "l":

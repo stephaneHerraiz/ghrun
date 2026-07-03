@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
@@ -62,7 +64,7 @@ func buildExplainService(cfg config.Config) ui.ExplainService {
 	if !ec.IsEnabled() {
 		return nil
 	}
-	storePath := ec.StorePath
+	storePath := expandHome(ec.StorePath)
 	if storePath == "" {
 		if p, err := config.ResolveExplainStorePath(); err == nil {
 			storePath = p
@@ -95,4 +97,15 @@ func buildExplainService(cfg config.Config) ui.ExplainService {
 			Language:    ec.Language,
 		},
 	)
+}
+
+// expandHome resolves a leading "~/" so the documented storePath example
+// works verbatim; chromem would otherwise create a literal "~" directory.
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return p
 }

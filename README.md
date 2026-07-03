@@ -268,7 +268,7 @@ explain:                          # run-failure explanations (all optional)
 | `explain.similarityThreshold` | `0.86` | Cosine similarity for a knowledge-base hit. |
 | `explain.anthropicAPIKey` | *(empty)* | Anthropic API key; falls back to `ANTHROPIC_API_KEY`. |
 | `explain.model` | `claude-sonnet-5` | Model used by the API explainer. |
-| `explain.claudeCmd` | `claude` | CLI binary used when no API key is configured. |
+| `explain.claudeCmd` | `claude` | CLI fallback when no API key is configured or the API call fails. |
 | `explain.storePath` | `~/.config/ghrun/explain-db` | Knowledge-base directory. |
 | `explain.maxLogBytes` | `65536` | Max raw-log bytes sent to Claude (truncated from the end). |
 | `explain.language` | `English` | Language of generated explanations. |
