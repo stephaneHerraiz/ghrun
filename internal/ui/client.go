@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"context"
 	"time"
 
+	"github.com/stephaneHerraiz/ghrun/internal/explain"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
 
@@ -21,4 +23,11 @@ type GHClient interface {
 	OpenWeb(repo gh.RepoRef, id int64) error
 	ListOrgRepos(org string) ([]gh.RepoRef, error)
 	ListNamespaces() ([]string, error)
+}
+
+// ExplainService is the subset of *explain.Service the UI depends on (for
+// mockability, like GHClient).
+type ExplainService interface {
+	ResolveLocal(ctx context.Context, logText string) (explain.LocalResult, error)
+	AskClaude(ctx context.Context, req explain.ExplainRequest) (explain.ClaudeResult, error)
 }

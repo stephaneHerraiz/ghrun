@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
+	"github.com/stephaneHerraiz/ghrun/internal/explain"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
 
@@ -179,4 +183,59 @@ func cancelCmd(c GHClient, repo gh.RepoRef, id int64) tea.Cmd {
 
 func openWebCmd(c GHClient, repo gh.RepoRef, id int64) tea.Cmd {
 	return func() tea.Msg { return actionDoneMsg{err: c.OpenWeb(repo, id)} }
+}
+
+// --- explain feature ---
+
+// explainRunMsg asks the App (which owns the explain service) to open the
+// Explanation screen for a failed run.
+type explainRunMsg struct {
+	repo   gh.RepoRef
+	id     int64
+	detail gh.RunDetail
+}
+
+type explainLogLoadedMsg struct {
+	text string
+	err  error
+}
+type explainLocalMsg struct {
+	res explain.LocalResult
+	err error
+}
+type explainClaudeMsg struct {
+	res explain.ClaudeResult
+	err error
+}
+
+// loadExplainLogCmd fetches the failed log, falling back to the full log when
+// the failed-only view is empty or unavailable.
+func loadExplainLogCmd(c GHClient, repo gh.RepoRef, id int64) tea.Cmd {
+	return func() tea.Msg {
+		txt, err := c.RunLogs(repo, id, true)
+		if err != nil || strings.TrimSpace(txt) == "" {
+			txt, err = c.RunLogs(repo, id, false)
+		}
+		if err != nil {
+			return explainLogLoadedMsg{err: err}
+		}
+		if strings.TrimSpace(txt) == "" {
+			return explainLogLoadedMsg{err: fmt.Errorf("no logs available for run #%d", id)}
+		}
+		return explainLogLoadedMsg{text: txt}
+	}
+}
+
+func resolveLocalCmd(svc ExplainService, logText string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.ResolveLocal(context.Background(), logText)
+		return explainLocalMsg{res: res, err: err}
+	}
+}
+
+func askClaudeCmd(svc ExplainService, req explain.ExplainRequest) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.AskClaude(context.Background(), req)
+		return explainClaudeMsg{res: res, err: err}
+	}
 }
