@@ -29,6 +29,7 @@ type App struct {
 	errText    string
 	showHelp   bool
 	saveConfig func(config.Config) error
+	explainSvc ExplainService // nil when explain is disabled or unconfigured
 }
 
 // homeScreen returns the home/initial screen: the org picker until a default
@@ -49,6 +50,14 @@ func NewApp(c GHClient, cfg config.Config) App {
 	}
 	s, _ := a.homeScreen()
 	a.stack = []Screen{s}
+	return a
+}
+
+// WithExplainService enables the run-failure explanation feature. Screens
+// never hold the service themselves: rundetail emits explainRunMsg and the
+// App resolves it here.
+func (a App) WithExplainService(s ExplainService) App {
+	a.explainSvc = s
 	return a
 }
 
@@ -185,7 +194,30 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case pushMsg:
+		// Stamp feature availability on screens that surface it contextually.
+		if rd, ok := m.screen.(*rundetail); ok {
+			rd.explainAvailable = a.explainSvc != nil
+		}
 		a.push(m.screen)
+		return a, nil
+	case explainRunMsg:
+		if a.explainSvc == nil {
+			return a, nil
+		}
+		es, cmd := newExplain(a.client, a.explainSvc, m.repo, m.id, m.detail)
+		a.push(es)
+		return a, cmd
+	case explainLogLoadedMsg, explainLocalMsg, explainClaudeMsg:
+		// Explain results must reach the explain screen even when it is
+		// buried (e.g. raw logs were opened while claude was thinking) —
+		// data messages otherwise only reach the top screen.
+		for i := len(a.stack) - 1; i >= 0; i-- {
+			if _, ok := a.stack[i].(*explainScreen); ok {
+				ns, cmd := a.stack[i].Update(msg)
+				a.stack[i] = ns
+				return a, cmd
+			}
+		}
 		return a, nil
 	case enterRepoMsg:
 		repo := m.repo
@@ -277,7 +309,7 @@ func (a App) footer() string {
 		keys = strings.Join([]string{
 			"Navigation: [W] workflows · [U] runs · [R] repos (home) · esc back · q quit",
 			"Lists: ↑/↓ move · Enter open · f favorite (home) · / filter (home)",
-			"Runs: r rerun · f rerun-failed · x cancel · o open web · l logs · g refresh",
+			"Runs: r rerun · f rerun-failed · x cancel · o open web · l logs · e explain · g refresh",
 			"? hide help",
 		}, "\n")
 	} else {
