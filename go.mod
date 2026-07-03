@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250319133953-166f707985bc
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/cli/go-gh/v2 v2.12.0
+	github.com/philippgille/chromem-go v0.7.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
