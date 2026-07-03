@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
+	"github.com/stephaneHerraiz/ghrun/internal/explain"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
 
@@ -179,4 +183,76 @@ func cancelCmd(c GHClient, repo gh.RepoRef, id int64) tea.Cmd {
 
 func openWebCmd(c GHClient, repo gh.RepoRef, id int64) tea.Cmd {
 	return func() tea.Msg { return actionDoneMsg{err: c.OpenWeb(repo, id)} }
+}
+
+// --- explain feature ---
+
+// explainRunMsg asks the App (which owns the explain service) to open the
+// Explanation screen for a failed run.
+type explainRunMsg struct {
+	repo   gh.RepoRef
+	id     int64
+	detail gh.RunDetail
+}
+
+type explainLogLoadedMsg struct {
+	id   int64
+	text string
+	err  error
+}
+type explainLocalMsg struct {
+	id  int64
+	res explain.LocalResult
+	err error
+}
+type explainClaudeMsg struct {
+	id  int64
+	res explain.ClaudeResult
+	err error
+}
+
+// explainMsgID extracts the run id an explain message belongs to, so the App
+// can route it to the right explain screen.
+func explainMsgID(msg tea.Msg) int64 {
+	switch m := msg.(type) {
+	case explainLogLoadedMsg:
+		return m.id
+	case explainLocalMsg:
+		return m.id
+	case explainClaudeMsg:
+		return m.id
+	}
+	return 0
+}
+
+// loadExplainLogCmd fetches the failed log, falling back to the full log when
+// the failed-only view is empty or unavailable.
+func loadExplainLogCmd(c GHClient, repo gh.RepoRef, id int64) tea.Cmd {
+	return func() tea.Msg {
+		txt, err := c.RunLogs(repo, id, true)
+		if err != nil || strings.TrimSpace(txt) == "" {
+			txt, err = c.RunLogs(repo, id, false)
+		}
+		if err != nil {
+			return explainLogLoadedMsg{id: id, err: err}
+		}
+		if strings.TrimSpace(txt) == "" {
+			return explainLogLoadedMsg{id: id, err: fmt.Errorf("no logs available for run #%d", id)}
+		}
+		return explainLogLoadedMsg{id: id, text: txt}
+	}
+}
+
+func resolveLocalCmd(svc ExplainService, id int64, logText string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.ResolveLocal(context.Background(), logText)
+		return explainLocalMsg{id: id, res: res, err: err}
+	}
+}
+
+func askClaudeCmd(svc ExplainService, id int64, req explain.ExplainRequest) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.AskClaude(context.Background(), req)
+		return explainClaudeMsg{id: id, res: res, err: err}
+	}
 }

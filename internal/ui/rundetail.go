@@ -16,6 +16,9 @@ type rundetail struct {
 	detail   gh.RunDetail
 	loaded   bool
 	interval time.Duration
+	// explainAvailable is stamped by the App on push: the explain service is
+	// configured and enabled.
+	explainAvailable bool
 }
 
 func newRunDetail(c GHClient, repo gh.RepoRef, id int64) (*rundetail, tea.Cmd) {
@@ -26,6 +29,11 @@ func newRunDetail(c GHClient, repo gh.RepoRef, id int64) (*rundetail, tea.Cmd) {
 func (d *rundetail) Title() string { return fmt.Sprintf("run #%d", d.id) }
 
 func (d *rundetail) active() bool { return d.loaded && d.detail.Run.Active() }
+
+// explainable reports whether the run's conclusion warrants an explanation.
+func (d *rundetail) explainable() bool {
+	return d.loaded && (d.detail.Conclusion == "failure" || d.detail.Conclusion == "timed_out")
+}
 
 // refresh reloads the run detail while the run is active; driven by the app's
 // single ticker. Returns nil + a slow interval once the run is no longer active.
@@ -64,6 +72,11 @@ func (d *rundetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return d, cancelCmd(d.client, d.repo, d.id)
 		case "o":
 			return d, openWebCmd(d.client, d.repo, d.id)
+		case "e":
+			if d.explainAvailable && d.explainable() {
+				detail := d.detail
+				return d, func() tea.Msg { return explainRunMsg{repo: d.repo, id: d.id, detail: detail} }
+			}
 		}
 	}
 	return d, nil
@@ -82,6 +95,10 @@ func (d *rundetail) View() string {
 			b.WriteString(fmt.Sprintf("    %s %s\n", statusIcon(st.Status, st.Conclusion), st.Name))
 		}
 	}
-	b.WriteString("\n[l] logs  ·  r rerun  f rerun-failed  x cancel  o web")
+	hints := "[l] logs  ·  r rerun  f rerun-failed  x cancel  o web"
+	if d.explainAvailable && d.explainable() {
+		hints += "  ·  e explain"
+	}
+	b.WriteString("\n" + hints)
 	return b.String()
 }

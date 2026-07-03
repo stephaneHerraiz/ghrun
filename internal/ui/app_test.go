@@ -7,6 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
+	"github.com/stephaneHerraiz/ghrun/internal/explain"
+	"github.com/stephaneHerraiz/ghrun/internal/gh"
 )
 
 func newTestApp() App {
@@ -186,5 +188,64 @@ func TestOrgSelectedSavesAndSwapsToDashboard(t *testing.T) {
 	}
 	if _, ok := got.top().(*dashboard); !ok {
 		t.Fatalf("top after selection = %T, want *dashboard", got.top())
+	}
+}
+
+func TestPushMarksRunDetailExplainAvailable(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"}).WithExplainService(&fakeExplainService{})
+	rd, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 1)
+	m, _ := a.Update(pushMsg{screen: rd})
+	a2 := m.(App)
+	got, ok := a2.top().(*rundetail)
+	if !ok {
+		t.Fatalf("top = %T, want *rundetail", a2.top())
+	}
+	if !got.explainAvailable {
+		t.Error("pushed rundetail must have explainAvailable set")
+	}
+
+	b := NewApp(nil, config.Config{DefaultOrg: "acme"})
+	rd2, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 2)
+	m2, _ := b.Update(pushMsg{screen: rd2})
+	if m2.(App).top().(*rundetail).explainAvailable {
+		t.Error("no service: explainAvailable must stay false")
+	}
+}
+
+func TestExplainRunMsgPushesExplainScreen(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"}).WithExplainService(&fakeExplainService{})
+	m, cmd := a.Update(explainRunMsg{repo: gh.RepoRef{Owner: "o", Name: "r"}, id: 5})
+	if cmd == nil {
+		t.Error("pushing explain must start the log fetch")
+	}
+	if _, ok := m.(App).top().(*explainScreen); !ok {
+		t.Fatalf("top = %T", m.(App).top())
+	}
+}
+
+func TestExplainRunMsgIgnoredWithoutService(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"})
+	before := len(a.stack)
+	m, _ := a.Update(explainRunMsg{repo: gh.RepoRef{Owner: "o", Name: "r"}, id: 5})
+	if len(m.(App).stack) != before {
+		t.Error("explainRunMsg without a service must be a no-op")
+	}
+}
+
+func TestExplainMsgsReachBuriedExplainScreen(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"}).WithExplainService(&fakeExplainService{})
+	es, _ := newExplain(nil, &fakeExplainService{}, gh.RepoRef{Owner: "o", Name: "r"}, 5, failedDetail())
+	m, _ := a.Update(pushMsg{screen: es})
+	es.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
+	es.Update(explainLocalMsg{id: 5, res: explain.LocalResult{}}) // miss -> asking claude
+	m, _ = m.(App).Update(pushMsg{screen: stubScreen{title: "logs"}})
+	m, _ = m.(App).Update(explainClaudeMsg{id: 5, res: explain.ClaudeResult{Explanation: "late answer", Source: "claude-sonnet-5"}})
+	a2 := m.(App)
+	buried, ok := a2.stack[len(a2.stack)-2].(*explainScreen)
+	if !ok {
+		t.Fatalf("stack[-2] = %T, want *explainScreen", a2.stack[len(a2.stack)-2])
+	}
+	if !strings.Contains(buried.View(), "late answer") {
+		t.Errorf("buried explain screen missed the claude result:\n%s", buried.View())
 	}
 }

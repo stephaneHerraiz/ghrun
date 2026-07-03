@@ -32,3 +32,37 @@ func TestEnsureConfigWritesTemplateOnFirstRun(t *testing.T) {
 	}
 	_ = config.Default()
 }
+
+func TestBuildExplainServiceDisabled(t *testing.T) {
+	off := false
+	cfg := config.Default()
+	cfg.Explain.Enabled = &off
+	if svc := buildExplainService(cfg); svc != nil {
+		t.Error("disabled explain must yield a nil service")
+	}
+}
+
+func TestBuildExplainServiceEnabled(t *testing.T) {
+	cfg := config.Default()
+	cfg.Explain.StorePath = t.TempDir() // never touch the real config dir
+	svc := buildExplainService(cfg)
+	if svc == nil {
+		t.Fatal("enabled explain must yield a service")
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := expandHome("~/x/y"); got != filepath.Join(home, "x", "y") {
+		t.Errorf("expandHome(~/x/y) = %q", got)
+	}
+	if got := expandHome("/abs/path"); got != "/abs/path" {
+		t.Errorf("absolute path changed: %q", got)
+	}
+	if got := expandHome(""); got != "" {
+		t.Errorf("empty path changed: %q", got)
+	}
+}

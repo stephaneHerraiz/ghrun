@@ -4,9 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
+	"github.com/stephaneHerraiz/ghrun/internal/explain"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
 	"github.com/stephaneHerraiz/ghrun/internal/ui"
 )
@@ -43,6 +47,65 @@ func run() error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 	app := ui.NewApp(client, cfg)
+	if svc := buildExplainService(cfg); svc != nil {
+		app = app.WithExplainService(svc)
+	}
 	_, err = tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
+}
+
+// buildExplainService assembles the run-failure explanation service from
+// config, or nil when the feature is disabled. Explainer order encodes the
+// fallback: Anthropic API when a key is configured, then the claude CLI when
+// the binary is on PATH. Every part degrades gracefully at runtime, so
+// construction never fails.
+func buildExplainService(cfg config.Config) ui.ExplainService {
+	ec := cfg.Explain
+	if !ec.IsEnabled() {
+		return nil
+	}
+	storePath := expandHome(ec.StorePath)
+	if storePath == "" {
+		if p, err := config.ResolveExplainStorePath(); err == nil {
+			storePath = p
+		}
+	}
+	var store explain.Store
+	if storePath != "" {
+		if s, err := explain.NewChromemStore(storePath); err == nil {
+			store = s
+		}
+	}
+	var explainers []explain.Explainer
+	key := ec.AnthropicAPIKey
+	if key == "" {
+		key = os.Getenv("ANTHROPIC_API_KEY")
+	}
+	if key != "" {
+		explainers = append(explainers, explain.NewAnthropicExplainer(key, ec.Model))
+	}
+	if _, err := exec.LookPath(ec.ClaudeCmd); err == nil {
+		explainers = append(explainers, explain.NewClaudeCLIExplainer(ec.ClaudeCmd))
+	}
+	return explain.NewService(
+		explain.NewOllamaEmbedder(ec.OllamaURL, ec.EmbeddingModel),
+		&explain.Chain{Explainers: explainers},
+		store,
+		explain.Options{
+			Threshold:   float32(ec.SimilarityThreshold),
+			MaxLogBytes: ec.MaxLogBytes,
+			Language:    ec.Language,
+		},
+	)
+}
+
+// expandHome resolves a leading "~/" so the documented storePath example
+// works verbatim; chromem would otherwise create a literal "~" directory.
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return p
 }
