@@ -38,7 +38,9 @@ var volatileRes = []struct {
 	{regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`), "<UUID>"},
 	{regexp.MustCompile(`\b[0-9a-f]{7,40}\b`), "<SHA>"},
 	{regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b`), "<IP>"},
-	{regexp.MustCompile(`/(?:home|tmp|__w|__t|var|usr|opt|Users|runner|github)[\w@./-]*`), "<PATH>"},
+	// Directories are volatile, basenames are not: keep the filename so two
+	// failures on different files don't collide on the same signature.
+	{regexp.MustCompile(`/(?:home|tmp|__w|__t|var|usr|opt|Users|runner|github)[\w@./-]*/`), "<PATH>/"},
 	{regexp.MustCompile(`:\d+(:\d+)?\b`), "<LN>"},
 	{regexp.MustCompile(`\b\d{5,}\b`), "<NUM>"},
 }

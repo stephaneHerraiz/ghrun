@@ -118,3 +118,18 @@ func TestPrepareSignatureStable(t *testing.T) {
 		t.Errorf("signature %q is not a sha256 hex string", sigA)
 	}
 }
+
+func TestPrepareSignatureDistinguishesFilenames(t *testing.T) {
+	logA := "build\tError: /home/runner/work/repo/config/prod.yaml: invalid syntax"
+	logB := "build\tError: /home/runner/work/repo/config/staging.yaml: invalid syntax"
+	_, sigA := Prepare(logA)
+	_, sigB := Prepare(logB)
+	if sigA == sigB {
+		t.Error("different basenames must not share a signature")
+	}
+	logC := "build\tError: /home/elsewhere/other/dir/prod.yaml: invalid syntax"
+	_, sigC := Prepare(logC)
+	if sigC != sigA {
+		t.Error("same basename in a different directory must share the signature")
+	}
+}
