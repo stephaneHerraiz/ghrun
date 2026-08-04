@@ -116,15 +116,24 @@ func TestExplainMissAsksClaude(t *testing.T) {
 	}
 }
 
-func TestExplainRAGDisabledWarns(t *testing.T) {
+func TestExplainRAGDisabledShowsRealReason(t *testing.T) {
 	e := newTestExplain(&fakeExplainService{})
 	e.Update(explainLogLoadedMsg{id: 5, text: "Error: boom"})
-	s, cmd := e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{RAGDisabled: true}})
+	s, cmd := e.Update(explainLocalMsg{id: 5, res: explain.LocalResult{
+		RAGDisabled:    true,
+		DisabledReason: "ollama: 500: input length exceeds the context length",
+	}})
 	if cmd == nil {
 		t.Fatal("RAG disabled must still ask claude")
 	}
-	if !strings.Contains(s.View(), "Ollama unreachable") {
-		t.Errorf("view = %q", s.View())
+	v := s.View()
+	// The real cause must be shown, and the old hardcoded "Ollama unreachable"
+	// lie must be gone — Ollama answered fine, the input was just too long.
+	if !strings.Contains(v, "input length exceeds the context length") {
+		t.Errorf("view must show the real reason: %q", v)
+	}
+	if strings.Contains(v, "unreachable") {
+		t.Errorf("must not claim Ollama is unreachable: %q", v)
 	}
 }
 

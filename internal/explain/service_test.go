@@ -87,13 +87,27 @@ func TestResolveLocalBelowThresholdIsBestGuess(t *testing.T) {
 	}
 }
 
-func TestResolveLocalOllamaDown(t *testing.T) {
-	svc := newTestService(&fakeEmbedder{err: errors.New("connection refused")}, &fakeStore{})
+func TestResolveLocalEmbedFailureCarriesReason(t *testing.T) {
+	svc := newTestService(&fakeEmbedder{err: errors.New("ollama: 500: input length exceeds the context length")}, &fakeStore{})
 	res, err := svc.ResolveLocal(context.Background(), testLog)
 	if err != nil {
-		t.Fatalf("Ollama down must be a soft miss, got %v", err)
+		t.Fatalf("embed failure must be a soft miss, got %v", err)
 	}
 	if res.Found || !res.RAGDisabled {
+		t.Errorf("res = %+v", res)
+	}
+	// The reason must be the real embedder error, not a hardcoded "unreachable"
+	// lie: the UI shows it verbatim so the user can act on it.
+	if !strings.Contains(res.DisabledReason, "context length") {
+		t.Errorf("DisabledReason = %q, want the real embedder error", res.DisabledReason)
+	}
+}
+
+func TestResolveLocalStoreQueryFailureCarriesReason(t *testing.T) {
+	st := &fakeStore{queryErr: errors.New("gob: corrupt")}
+	svc := newTestService(&fakeEmbedder{vec: []float32{1, 0}}, st)
+	res, _ := svc.ResolveLocal(context.Background(), testLog)
+	if !res.RAGDisabled || !strings.Contains(res.DisabledReason, "gob: corrupt") {
 		t.Errorf("res = %+v", res)
 	}
 }
@@ -103,6 +117,9 @@ func TestResolveLocalNilStore(t *testing.T) {
 	res, err := svc.ResolveLocal(context.Background(), testLog)
 	if err != nil || res.Found || !res.RAGDisabled {
 		t.Errorf("res = %+v err = %v", res, err)
+	}
+	if res.DisabledReason == "" {
+		t.Error("nil store must still explain why the knowledge base is off")
 	}
 }
 
