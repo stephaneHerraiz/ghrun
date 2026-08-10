@@ -96,7 +96,11 @@ func (e *explainScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			return e, askClaudeCmd(e.svc, e.id, e.request())
 		}
 		if m.res.RAGDisabled {
-			e.warnText = "knowledge base disabled (Ollama unreachable)"
+			reason := m.res.DisabledReason
+			if reason == "" {
+				reason = "unavailable"
+			}
+			e.warnText = "knowledge base disabled: " + reason
 		}
 		if m.res.Found {
 			e.phase = phaseDone

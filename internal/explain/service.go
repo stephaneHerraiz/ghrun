@@ -20,6 +20,11 @@ type LocalResult struct {
 	Explanation string  // hit text; on a miss, the best sub-threshold match ("best guess", may be empty)
 	Similarity  float32 // 1.0 on an exact hit
 	RAGDisabled bool    // embedder or store unavailable: nothing was searched
+	// DisabledReason is the real cause when RAGDisabled is set (embedder error,
+	// store error, or missing store). The UI shows it verbatim, so it must not
+	// be a guess — e.g. an "input too long" embedder error must never surface
+	// as "Ollama unreachable".
+	DisabledReason string
 }
 
 // ClaudeResult is the outcome of the generation phase.
@@ -46,7 +51,7 @@ func NewService(embedder Embedder, chain *Chain, store Store, opts Options) *Ser
 // never an error that would block the Claude phase.
 func (s *Service) ResolveLocal(ctx context.Context, logText string) (LocalResult, error) {
 	if s.store == nil {
-		return LocalResult{RAGDisabled: true}, nil
+		return LocalResult{RAGDisabled: true, DisabledReason: "knowledge base storage is not configured"}, nil
 	}
 	normalized, sig := Prepare(logText)
 	if entry, ok := s.store.GetBySignature(sig); ok {
@@ -55,11 +60,11 @@ func (s *Service) ResolveLocal(ctx context.Context, logText string) (LocalResult
 	}
 	embedding, err := s.embedder.Embed(ctx, normalized)
 	if err != nil {
-		return LocalResult{RAGDisabled: true}, nil
+		return LocalResult{RAGDisabled: true, DisabledReason: err.Error()}, nil
 	}
 	matches, err := s.store.Query(embedding, 1)
 	if err != nil {
-		return LocalResult{RAGDisabled: true}, nil
+		return LocalResult{RAGDisabled: true, DisabledReason: err.Error()}, nil
 	}
 	if len(matches) == 0 {
 		return LocalResult{}, nil
