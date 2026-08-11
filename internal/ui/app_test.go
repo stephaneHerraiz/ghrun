@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -247,5 +248,76 @@ func TestExplainMsgsReachBuriedExplainScreen(t *testing.T) {
 	}
 	if !strings.Contains(buried.View(), "late answer") {
 		t.Errorf("buried explain screen missed the claude result:\n%s", buried.View())
+	}
+}
+
+func TestAppStampsChatAvailabilityOnPush(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"}).WithChatCacheDir("/cache")
+	rd, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 5)
+	m, _ := a.Update(pushMsg{screen: rd})
+	if !m.(App).top().(*rundetail).chatAvailable {
+		t.Error("chat should be available: enabled by default and a cache dir is set")
+	}
+}
+
+func TestAppChatUnavailableWithoutCacheDir(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"})
+	rd, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 5)
+	m, _ := a.Update(pushMsg{screen: rd})
+	if m.(App).top().(*rundetail).chatAvailable {
+		t.Error("no cache dir means no chat")
+	}
+}
+
+func TestAppChatUnavailableWhenDisabled(t *testing.T) {
+	off := false
+	cfg := config.Config{DefaultOrg: "acme", Chat: config.ChatConfig{Enabled: &off}}
+	a := NewApp(nil, cfg).WithChatCacheDir("/cache")
+	rd, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 5)
+	m, _ := a.Update(pushMsg{screen: rd})
+	if m.(App).top().(*rundetail).chatAvailable {
+		t.Error("chat.enabled: false must hide the feature")
+	}
+}
+
+func TestAppSuspendsTickerWhileChatting(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"}).WithChatCacheDir("/cache")
+
+	m, cmd := a.Update(chatReadyMsg{cmd: exec.Command("true")})
+	if cmd == nil {
+		t.Fatal("chatReadyMsg must return the exec command")
+	}
+	if !m.(App).suspended {
+		t.Fatal("the app must be marked suspended")
+	}
+	// A tick arriving while suspended is dropped, ticker chain included.
+	if _, tickCmd := m.(App).Update(tickMsg(time.Now())); tickCmd != nil {
+		t.Error("ticks must be dropped while suspended, with no rescheduling")
+	}
+}
+
+func TestAppResumesAfterChat(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"}).WithChatCacheDir("/cache")
+	m, _ := a.Update(chatReadyMsg{cmd: exec.Command("true")})
+
+	resumed, cmd := m.(App).Update(chatDoneMsg{})
+	if resumed.(App).suspended {
+		t.Error("chatDoneMsg must clear the suspended flag")
+	}
+	if cmd == nil {
+		t.Fatal("chatDoneMsg must restart the ticker")
+	}
+	// A tick is honoured again.
+	if _, tickCmd := resumed.(App).Update(tickMsg(time.Now())); tickCmd == nil {
+		t.Error("the ticker must run again after the chat")
+	}
+}
+
+func TestAppReportsChatError(t *testing.T) {
+	a := NewApp(nil, config.Config{DefaultOrg: "acme"}).WithChatCacheDir("/cache")
+	m, _ := a.Update(chatReadyMsg{cmd: exec.Command("true")})
+	resumed, _ := m.(App).Update(chatDoneMsg{err: errorString("claude blew up")})
+	if !strings.Contains(resumed.(App).View(), "claude blew up") {
+		t.Errorf("the error must reach the footer:\n%s", resumed.(App).View())
 	}
 }
