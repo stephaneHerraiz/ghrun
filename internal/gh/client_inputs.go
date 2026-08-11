@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -12,11 +13,14 @@ import (
 // ErrNoDispatch indicates a workflow has no workflow_dispatch trigger.
 var ErrNoDispatch = errors.New("workflow has no workflow_dispatch trigger")
 
-// WorkflowInputs fetches the workflow file and parses its workflow_dispatch inputs in order.
-func (c *Client) WorkflowInputs(repo RepoRef, path string) ([]Input, error) {
-	out, err := c.run.Exec("api",
-		fmt.Sprintf("repos/%s/%s/contents/%s", repo.Owner, repo.Name, path),
-		"--jq", ".content")
+// WorkflowFile fetches a file from the repo at ref (empty ref = default
+// branch) and returns its decoded bytes.
+func (c *Client) WorkflowFile(repo RepoRef, path, ref string) ([]byte, error) {
+	endpoint := fmt.Sprintf("repos/%s/%s/contents/%s", repo.Owner, repo.Name, path)
+	if ref != "" {
+		endpoint += "?ref=" + url.QueryEscape(ref)
+	}
+	out, err := c.run.Exec("api", endpoint, "--jq", ".content")
 	if err != nil {
 		return nil, err
 	}
@@ -26,6 +30,15 @@ func (c *Client) WorkflowInputs(repo RepoRef, path string) ([]Input, error) {
 	decoded, err := base64.StdEncoding.DecodeString(cleaned)
 	if err != nil {
 		return nil, fmt.Errorf("decoding workflow content: %w", err)
+	}
+	return decoded, nil
+}
+
+// WorkflowInputs fetches the workflow file and parses its workflow_dispatch inputs in order.
+func (c *Client) WorkflowInputs(repo RepoRef, path string) ([]Input, error) {
+	decoded, err := c.WorkflowFile(repo, path, "")
+	if err != nil {
+		return nil, err
 	}
 	return parseDispatchInputs(decoded)
 }

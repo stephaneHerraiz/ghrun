@@ -72,3 +72,41 @@ func TestWorkflowInputsNoDispatch(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoDispatch", err)
 	}
 }
+
+func TestWorkflowFileDecodesAndPassesRef(t *testing.T) {
+	// GitHub line-wraps base64 with \n; some proxies inject \r\n.
+	enc := b64(sampleWorkflow)
+	wrapped := enc[:10] + "\r\n" + enc[10:]
+	f := (&fakeRunner{}).push(wrapped+"\n", nil)
+	c := NewClient(f)
+
+	out, err := c.WorkflowFile(RepoRef{"o", "r"}, ".github/workflows/deploy.yml", "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != sampleWorkflow {
+		t.Fatalf("content = %q", string(out))
+	}
+	got := f.lastCall()
+	if got[1] != "repos/o/r/contents/.github/workflows/deploy.yml?ref=abc123" {
+		t.Errorf("argv = %v", got)
+	}
+}
+
+func TestWorkflowFileOmitsEmptyRef(t *testing.T) {
+	f := (&fakeRunner{}).push(b64(sampleWorkflow), nil)
+	c := NewClient(f)
+	if _, err := c.WorkflowFile(RepoRef{"o", "r"}, ".github/workflows/deploy.yml", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.lastCall(); got[1] != "repos/o/r/contents/.github/workflows/deploy.yml" {
+		t.Errorf("argv = %v", got)
+	}
+}
+
+func TestWorkflowFileRejectsBadBase64(t *testing.T) {
+	c := NewClient((&fakeRunner{}).push("!!!not base64!!!", nil))
+	if _, err := c.WorkflowFile(RepoRef{"o", "r"}, "p", ""); err == nil {
+		t.Fatal("expected a decode error")
+	}
+}
