@@ -102,3 +102,15 @@ func TestPromptKeepsAShortSHAAsIs(t *testing.T) {
 		t.Errorf("a short sha must be printed as-is:\n%s", Prompt(s))
 	}
 }
+
+func TestPromptKeepsTheURLWhenTheBranchIsUnknown(t *testing.T) {
+	s := failedSession()
+	s.Branch, s.HeadSHA = "", ""
+	p := Prompt(s)
+	if !strings.Contains(p, "URL: https://github.com/acme/widgets/actions/runs/4211") {
+		t.Errorf("the run URL must survive a missing branch:\n%s", p)
+	}
+	if strings.Contains(p, "Branch:") {
+		t.Errorf("no branch means no branch line:\n%s", p)
+	}
+}

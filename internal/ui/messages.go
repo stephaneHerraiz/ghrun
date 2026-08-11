@@ -3,10 +3,12 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stephaneHerraiz/ghrun/internal/chat"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
 	"github.com/stephaneHerraiz/ghrun/internal/explain"
 	"github.com/stephaneHerraiz/ghrun/internal/gh"
@@ -254,5 +256,87 @@ func askClaudeCmd(svc ExplainService, id int64, req explain.ExplainRequest) tea.
 	return func() tea.Msg {
 		res, err := svc.AskClaude(context.Background(), req)
 		return explainClaudeMsg{id: id, res: res, err: err}
+	}
+}
+
+// --- chat feature ---
+
+// chatFetcher is the subset of GHClient prepareChatCmd needs. Keeping it
+// narrow means the test fake is three methods rather than the whole client.
+type chatFetcher interface {
+	RunMeta(repo gh.RepoRef, id int64) (gh.RunMeta, error)
+	WorkflowFile(repo gh.RepoRef, path, ref string) ([]byte, error)
+	RunLogs(repo gh.RepoRef, id int64, failedOnly bool) (string, error)
+}
+
+// chatRequestMsg asks the App (which owns the config and the cache dir) to
+// prepare a chat about this run.
+type chatRequestMsg struct {
+	repo   gh.RepoRef
+	id     int64
+	detail gh.RunDetail
+}
+
+// chatReadyMsg carries the claude invocation the App hands to tea.ExecProcess.
+type chatReadyMsg struct{ cmd *exec.Cmd }
+
+// chatDoneMsg reports that claude exited and the terminal is ours again.
+type chatDoneMsg struct{ err error }
+
+// prepareChatCmd gathers the run's context, writes it under cacheDir and
+// builds the claude invocation. Every fetch is best-effort: a missing piece
+// is described in the prompt rather than aborting, and only a completely
+// empty context is an error.
+func prepareChatCmd(f chatFetcher, cfg config.ChatConfig, cacheDir string,
+	repo gh.RepoRef, id int64, detail gh.RunDetail) tea.Cmd {
+	return func() tea.Msg {
+		if _, err := exec.LookPath(cfg.ClaudeCmd); err != nil {
+			return errMsg{err: fmt.Errorf("chat: %q not found in PATH", cfg.ClaudeCmd)}
+		}
+
+		cc := chat.Context{
+			Repo:        repo.String(),
+			RunID:       id,
+			Status:      detail.Status,
+			Conclusion:  detail.Conclusion,
+			FailedSteps: failedSteps(detail),
+			WebURL:      fmt.Sprintf("https://github.com/%s/actions/runs/%d", repo.String(), id),
+		}
+		meta, metaErr := f.RunMeta(repo, id)
+		if metaErr == nil {
+			cc.Workflow = meta.WorkflowName
+			cc.WorkflowPath = meta.WorkflowPath
+			cc.Branch = meta.HeadBranch
+			cc.HeadSHA = meta.HeadSHA
+			cc.RunNumber = meta.Number
+			if meta.Conclusion != "" {
+				cc.Conclusion = meta.Conclusion
+			}
+			if meta.Status != "" {
+				cc.Status = meta.Status
+			}
+			if meta.WebURL != "" {
+				cc.WebURL = meta.WebURL
+			}
+		}
+
+		// The failed-job log is the useful one on a failure; fall back to the
+		// full log when it is empty (e.g. a cancelled job leaves it blank).
+		logText, _ := f.RunLogs(repo, id, cc.Failed())
+		if cc.Failed() && strings.TrimSpace(logText) == "" {
+			logText, _ = f.RunLogs(repo, id, false)
+		}
+
+		var wf []byte
+		if cc.WorkflowPath != "" {
+			wf, _ = f.WorkflowFile(repo, cc.WorkflowPath, cc.HeadSHA)
+		}
+
+		s, err := chat.Prepare(cacheDir, cc, []byte(logText), wf)
+		if err != nil {
+			return errMsg{err: fmt.Errorf("chat: %w", err)}
+		}
+		s.CloneDir, _ = chat.FindClone(cfg.CloneRoots, repo.Owner, repo.Name)
+		return chatReadyMsg{cmd: chat.Command(cfg.ClaudeCmd, s)}
 	}
 }

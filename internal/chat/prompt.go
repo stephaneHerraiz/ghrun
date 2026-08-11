@@ -36,6 +36,10 @@ func Prompt(s Session) string {
 			fmt.Fprintf(&b, " · %s", s.WebURL)
 		}
 		b.WriteString("\n")
+	} else if s.WebURL != "" {
+		// No branch (the metadata call failed): the run URL is still worth
+		// having on its own line rather than being dropped with it.
+		fmt.Fprintf(&b, "URL: %s\n", s.WebURL)
 	}
 	if len(s.FailedSteps) > 0 {
 		fmt.Fprintf(&b, "Failed steps: %s\n", strings.Join(s.FailedSteps, "; "))

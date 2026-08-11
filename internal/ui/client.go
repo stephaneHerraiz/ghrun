@@ -20,6 +20,8 @@ type GHClient interface {
 	Rerun(repo gh.RepoRef, id int64, failedOnly bool) error
 	Cancel(repo gh.RepoRef, id int64) error
 	RunLogs(repo gh.RepoRef, id int64, failedOnly bool) (string, error)
+	RunMeta(repo gh.RepoRef, id int64) (gh.RunMeta, error)
+	WorkflowFile(repo gh.RepoRef, path, ref string) ([]byte, error)
 	OpenWeb(repo gh.RepoRef, id int64) error
 	ListOrgRepos(org string) ([]gh.RepoRef, error)
 	ListNamespaces() ([]string, error)
