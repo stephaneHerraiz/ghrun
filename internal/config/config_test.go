@@ -39,6 +39,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		ListPageSize:           25,
 		Favorites:              []string{"stephaneHerraiz/ghrun"},
 		Explain:                Default().Explain,
+		Chat:                   Default().Chat,
 	}
 	if err := SaveTo(p, in); err != nil {
 		t.Fatalf("SaveTo: %v", err)
@@ -137,5 +138,86 @@ func TestResolveExplainStorePath(t *testing.T) {
 	}
 	if p != "/xdg/ghrun/explain-db" {
 		t.Errorf("path = %q", p)
+	}
+}
+
+func TestChatDefaults(t *testing.T) {
+	d := Default()
+	if d.Chat.ClaudeCmd != "claude" {
+		t.Errorf("ClaudeCmd = %q, want claude", d.Chat.ClaudeCmd)
+	}
+	if len(d.Chat.CloneRoots) != 1 || d.Chat.CloneRoots[0] != "~/dev" {
+		t.Errorf("CloneRoots = %v, want [~/dev]", d.Chat.CloneRoots)
+	}
+	if !d.Chat.IsEnabled() {
+		t.Error("chat should be enabled by default")
+	}
+}
+
+func TestChatDisabledExplicitly(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(p, []byte("chat:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadFrom(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Chat.IsEnabled() {
+		t.Error("chat.enabled: false must disable the feature")
+	}
+	// Other chat fields still get their defaults.
+	if c.Chat.ClaudeCmd != "claude" {
+		t.Errorf("ClaudeCmd = %q", c.Chat.ClaudeCmd)
+	}
+}
+
+func TestChatSectionAbsentMeansEnabledWithDefaults(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(p, []byte("defaultOrg: acme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadFrom(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Chat.IsEnabled() {
+		t.Error("a config with no chat section must keep chat enabled")
+	}
+	if len(c.Chat.CloneRoots) != 1 || c.Chat.CloneRoots[0] != "~/dev" {
+		t.Errorf("CloneRoots = %v", c.Chat.CloneRoots)
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	if got := ExpandHome("~/dev"); got != filepath.Join(home, "dev") {
+		t.Errorf("ExpandHome(~/dev) = %q", got)
+	}
+	if got := ExpandHome("/abs/path"); got != "/abs/path" {
+		t.Errorf("absolute path must be untouched, got %q", got)
+	}
+	if got := ExpandHome(""); got != "" {
+		t.Errorf("empty must stay empty, got %q", got)
+	}
+	// A bare "~" is not expanded: only the "~/" prefix is documented.
+	if got := ExpandHome("~weird"); got != "~weird" {
+		t.Errorf("~weird = %q", got)
+	}
+}
+
+func TestResolveChatCacheDirHonorsXDG(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "/tmp/xdgcache")
+	p, err := ResolveChatCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != filepath.Join("/tmp/xdgcache", "ghrun", "chat") {
+		t.Errorf("dir = %q", p)
 	}
 }
