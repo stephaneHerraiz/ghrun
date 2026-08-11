@@ -56,6 +56,10 @@ navigation** (available everywhere), **lowercase = contextual actions**.
   with `ollama pull nomic-embed-text` (knowledge-base search), plus either an
   `ANTHROPIC_API_KEY` or the [`claude` CLI](https://claude.com/claude-code)
   (generation). Missing pieces degrade gracefully.
+- **Optional, for chatting about a run**: the
+  [`claude` CLI](https://claude.com/claude-code) on your `PATH`. `c` on a run
+  detail hands the terminal over to it with the run's log and workflow already
+  in context.
 
 ---
 
@@ -175,6 +179,7 @@ UI).
 |---|---|
 | `l` | View logs |
 | `e` | Explain the failure (failed/timed-out runs only) |
+| `c` | **Chat about the run with Claude** (log + workflow as context) |
 | `r` | Rerun · `f` rerun-failed · `x` cancel · `o` open web |
 
 ### Logs
@@ -224,6 +229,12 @@ UI).
   by Claude (Anthropic API if `ANTHROPIC_API_KEY` is set, otherwise the
   `claude` CLI) and memorized. Fully optional: without Ollama and Claude the
   rest of ghrun is unaffected.
+- **Chat about a run (`c`)**: ghrun writes the run's log and the workflow file
+  *as it was at the run's commit* to
+  `~/.cache/ghrun/chat/<owner>/<name>/<run>/`, then hands the terminal to the
+  interactive `claude` CLI, started inside the repository's local clone when
+  one is found under `chat.cloneRoots`. Quitting claude drops you back exactly
+  where you were. Works on any run, not only failed ones.
 - **Mouse** enabled everywhere (wheel scrolling on lists and logs).
 - **Non-blocking errors**: `gh` failures show in red in the footer and clear after
   a few seconds; only an auth failure at startup is fatal.
@@ -253,6 +264,11 @@ explain:                          # run-failure explanations (all optional)
   storePath: ~/.config/ghrun/explain-db
   maxLogBytes: 65536              # log truncated from the end
   language: English
+chat:                             # discuss a run with the claude CLI
+  enabled: true
+  claudeCmd: claude
+  cloneRoots:                     # where to look for the repo's local clone
+    - ~/dev
 ```
 
 | Key | Default | Description |
@@ -272,6 +288,9 @@ explain:                          # run-failure explanations (all optional)
 | `explain.storePath` | `~/.config/ghrun/explain-db` | Knowledge-base directory. |
 | `explain.maxLogBytes` | `65536` | Max raw-log bytes sent to Claude (truncated from the end). |
 | `explain.language` | `English` | Language of generated explanations. |
+| `chat.enabled` | `true` | Toggle the "discuss this run with Claude" feature. |
+| `chat.claudeCmd` | `claude` | Interactive CLI launched by `c`. |
+| `chat.cloneRoots` | `[~/dev]` | Roots scanned for the repo's local clone (`<root>/<name>`, then `<root>/<owner>/<name>`). |
 
 **Cache**: the organization's repo list is cached at `~/.cache/ghrun/repos.json`
 (honors `XDG_CACHE_HOME`) for instant display, then refreshed in the background.
@@ -289,6 +308,8 @@ ghrun invents nothing: it wraps the `gh` CLI (and its API). Overview:
 | Repo list | `gh repo list <org> --json nameWithOwner` |
 | A repo's workflows | `gh workflow list` |
 | A workflow's inputs | the YAML file contents → `on.workflow_dispatch.inputs` |
+| Run metadata (workflow path, head sha) | `gh api repos/{o}/{r}/actions/runs/{id}` |
+| A workflow file at a given commit | `gh api repos/{o}/{r}/contents/{path}?ref={sha}` |
 | Branches | `gh api repos/{o}/{r}/branches` |
 | **Dispatch** | `gh workflow run {id} --ref {branch} -f key=value …` |
 | Runs (live list) | `gh run list` |

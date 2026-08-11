@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stephaneHerraiz/ghrun/internal/config"
@@ -50,6 +48,9 @@ func run() error {
 	if svc := buildExplainService(cfg); svc != nil {
 		app = app.WithExplainService(svc)
 	}
+	if dir, err := config.ResolveChatCacheDir(); err == nil {
+		app = app.WithChatCacheDir(dir)
+	}
 	_, err = tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
@@ -64,7 +65,7 @@ func buildExplainService(cfg config.Config) ui.ExplainService {
 	if !ec.IsEnabled() {
 		return nil
 	}
-	storePath := expandHome(ec.StorePath)
+	storePath := config.ExpandHome(ec.StorePath)
 	if storePath == "" {
 		if p, err := config.ResolveExplainStorePath(); err == nil {
 			storePath = p
@@ -97,15 +98,4 @@ func buildExplainService(cfg config.Config) ui.ExplainService {
 			Language:    ec.Language,
 		},
 	)
-}
-
-// expandHome resolves a leading "~/" so the documented storePath example
-// works verbatim; chromem would otherwise create a literal "~" directory.
-func expandHome(p string) string {
-	if strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, p[2:])
-		}
-	}
-	return p
 }
