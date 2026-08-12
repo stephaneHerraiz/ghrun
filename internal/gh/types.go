@@ -91,3 +91,16 @@ type RunDetail struct {
 	Run
 	Jobs []Job
 }
+
+// RunMeta is run metadata that `gh run view --json` does not expose — chiefly
+// the workflow file path — fetched from the REST API in a single call.
+type RunMeta struct {
+	WorkflowName string
+	WorkflowPath string // ".github/workflows/ci.yaml"
+	HeadSHA      string
+	HeadBranch   string
+	Number       int
+	Status       string
+	Conclusion   string
+	WebURL       string
+}

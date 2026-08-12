@@ -30,6 +30,9 @@ type App struct {
 	showHelp   bool
 	saveConfig func(config.Config) error
 	explainSvc ExplainService // nil when explain is disabled or unconfigured
+
+	chatCacheDir string // empty: chat unavailable
+	suspended    bool   // true while an external process owns the terminal
 }
 
 // homeScreen returns the home/initial screen: the org picker until a default
@@ -59,6 +62,18 @@ func NewApp(c GHClient, cfg config.Config) App {
 func (a App) WithExplainService(s ExplainService) App {
 	a.explainSvc = s
 	return a
+}
+
+// WithChatCacheDir enables the "discuss this run with Claude" feature by
+// giving the App somewhere to write per-run context files.
+func (a App) WithChatCacheDir(dir string) App {
+	a.chatCacheDir = dir
+	return a
+}
+
+// chatEnabled reports whether the chat feature can be offered.
+func (a App) chatEnabled() bool {
+	return a.chatCacheDir != "" && a.cfg.Chat.IsEnabled()
 }
 
 // tickInterval is the app's base polling cadence, floored for safety.
@@ -197,6 +212,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Stamp feature availability on screens that surface it contextually.
 		if rd, ok := m.screen.(*rundetail); ok {
 			rd.explainAvailable = a.explainSvc != nil
+			rd.chatAvailable = a.chatEnabled()
 		}
 		a.push(m.screen)
 		return a, nil
@@ -227,7 +243,38 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		runs, cmd := newRuns(a.client, repo, a.cfg.RunListLimit, a.cfg.ListPageSize)
 		a.push(runs)
 		return a, cmd
+	case chatRequestMsg:
+		if !a.chatEnabled() {
+			return a, nil
+		}
+		return a, prepareChatCmd(a.client, a.cfg.Chat, a.chatCacheDir, m.repo, m.id, m.detail)
+	case chatReadyMsg:
+		// tea.ExecProcess hands the terminal to claude. The ticker is parked
+		// meanwhile: it would otherwise keep firing gh calls for a screen
+		// nobody can see, and the resumed chain would run alongside the one
+		// chatDoneMsg starts.
+		a.suspended = true
+		return a, tea.ExecProcess(m.cmd, func(err error) tea.Msg { return chatDoneMsg{err: err} })
+	case chatDoneMsg:
+		a.suspended = false
+		var clear tea.Cmd
+		if m.err != nil {
+			// Set the banner here rather than emitting an errMsg: the ticker
+			// restart below must go out in the same batch, and the auto-clear
+			// mirrors what the errMsg case does.
+			a.errText = fmt.Errorf("chat: %w", m.err).Error()
+			clear = tea.Tick(errBannerTTL, func(time.Time) tea.Msg { return clearErrMsg{} })
+		}
+		var reload tea.Cmd
+		if r, ok := a.top().(refresher); ok {
+			reload, _ = r.refresh()
+		}
+		return a, tea.Batch(clear, reload, tickCmd(a.tickInterval()))
+
 	case tickMsg:
+		if a.suspended {
+			return a, nil // chatDoneMsg restarts the chain
+		}
 		// The app owns the single ticker: only the top screen refreshes, so buried
 		// screens' chains can't multiply onto the top screen and over-poll gh.
 		next := a.tickInterval()
@@ -311,7 +358,7 @@ func (a App) footer() string {
 		keys = strings.Join([]string{
 			"Navigation: [W] workflows · [U] runs · [R] repos (home) · esc back · q quit",
 			"Lists: ↑/↓ move · Enter open · f favorite (home) · / filter (home)",
-			"Runs: r rerun · f rerun-failed · x cancel · o open web · l logs · e explain · g refresh",
+			"Runs: r rerun · f rerun-failed · x cancel · o open web · l logs · e explain · c chat · g refresh",
 			"? hide help",
 		}, "\n")
 	} else {

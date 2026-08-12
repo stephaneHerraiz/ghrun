@@ -19,6 +19,9 @@ type rundetail struct {
 	// explainAvailable is stamped by the App on push: the explain service is
 	// configured and enabled.
 	explainAvailable bool
+	// chatAvailable is stamped by the App on push: chat is enabled and a
+	// context cache directory could be resolved.
+	chatAvailable bool
 }
 
 func newRunDetail(c GHClient, repo gh.RepoRef, id int64) (*rundetail, tea.Cmd) {
@@ -77,6 +80,11 @@ func (d *rundetail) Update(msg tea.Msg) (Screen, tea.Cmd) {
 				detail := d.detail
 				return d, func() tea.Msg { return explainRunMsg{repo: d.repo, id: d.id, detail: detail} }
 			}
+		case "c":
+			if d.chatAvailable && d.loaded {
+				detail := d.detail
+				return d, func() tea.Msg { return chatRequestMsg{repo: d.repo, id: d.id, detail: detail} }
+			}
 		}
 	}
 	return d, nil
@@ -98,6 +106,9 @@ func (d *rundetail) View() string {
 	hints := "[l] logs  ·  r rerun  f rerun-failed  x cancel  o web"
 	if d.explainAvailable && d.explainable() {
 		hints += "  ·  e explain"
+	}
+	if d.chatAvailable && d.loaded {
+		hints += "  ·  c chat"
 	}
 	b.WriteString("\n" + hints)
 	return b.String()

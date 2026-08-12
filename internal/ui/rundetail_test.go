@@ -89,3 +89,46 @@ func TestRunDetailFooterExplainHint(t *testing.T) {
 		t.Error("disabled explain must not hint")
 	}
 }
+
+func TestRunDetailChatKeyEmitsMsg(t *testing.T) {
+	rd, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 5)
+	rd.chatAvailable = true
+	rd.Update(runDetailLoadedMsg{detail: gh.RunDetail{Run: gh.Run{ID: 5, Status: "completed", Conclusion: "success"}}})
+	_, cmd := rd.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if cmd == nil {
+		t.Fatal("'c' must emit chatRequestMsg on any loaded run")
+	}
+	msg, ok := cmd().(chatRequestMsg)
+	if !ok {
+		t.Fatalf("msg = %T", cmd())
+	}
+	if msg.id != 5 || msg.repo.Name != "r" {
+		t.Errorf("msg = %+v", msg)
+	}
+}
+
+func TestRunDetailChatKeyInertWhenUnavailable(t *testing.T) {
+	rd, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 5)
+	rd.chatAvailable = false
+	rd.Update(runDetailLoadedMsg{detail: gh.RunDetail{Run: gh.Run{ID: 5, Status: "completed", Conclusion: "success"}}})
+	if _, cmd := rd.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")}); cmd != nil {
+		t.Fatal("'c' must do nothing when chat is unavailable")
+	}
+}
+
+func TestRunDetailChatKeyInertBeforeLoad(t *testing.T) {
+	rd, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 5)
+	rd.chatAvailable = true
+	if _, cmd := rd.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")}); cmd != nil {
+		t.Fatal("'c' must wait for the run detail to load")
+	}
+}
+
+func TestRunDetailShowsChatHint(t *testing.T) {
+	rd, _ := newRunDetail(nil, gh.RepoRef{Owner: "o", Name: "r"}, 5)
+	rd.chatAvailable = true
+	s, _ := rd.Update(runDetailLoadedMsg{detail: gh.RunDetail{Run: gh.Run{ID: 5, Status: "completed", Conclusion: "success"}}})
+	if !strings.Contains(s.View(), "c chat") {
+		t.Errorf("view missing the chat hint:\n%s", s.View())
+	}
+}

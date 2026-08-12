@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,6 +18,7 @@ type Config struct {
 	ListPageSize           int           `yaml:"listPageSize"` // max rows shown at once in any list
 	Favorites              []string      `yaml:"favorites"`    // "owner/name"
 	Explain                ExplainConfig `yaml:"explain"`
+	Chat                   ChatConfig    `yaml:"chat"`
 }
 
 // ExplainConfig configures the run-failure explanation feature (local RAG +
@@ -38,6 +40,19 @@ type ExplainConfig struct {
 // existing config files without an explain section get the feature.
 func (e ExplainConfig) IsEnabled() bool { return e.Enabled == nil || *e.Enabled }
 
+// ChatConfig configures the "discuss this run with Claude" feature. It is
+// deliberately independent of ExplainConfig: chat must work even when the
+// explanation feature is disabled.
+type ChatConfig struct {
+	Enabled    *bool    `yaml:"enabled,omitempty"` // nil means enabled
+	ClaudeCmd  string   `yaml:"claudeCmd"`
+	CloneRoots []string `yaml:"cloneRoots"` // where to look for the repo's local clone
+}
+
+// IsEnabled reports whether chat is on. An unset flag means enabled, so
+// existing config files without a chat section get the feature.
+func (c ChatConfig) IsEnabled() bool { return c.Enabled == nil || *c.Enabled }
+
 // Default returns the baseline configuration.
 func Default() Config {
 	return Config{
@@ -52,6 +67,10 @@ func Default() Config {
 			ClaudeCmd:           "claude",
 			MaxLogBytes:         65536,
 			Language:            "English",
+		},
+		Chat: ChatConfig{
+			ClaudeCmd:  "claude",
+			CloneRoots: []string{"~/dev"},
 		},
 	}
 }
@@ -88,6 +107,12 @@ func applyDefaults(c Config) Config {
 	}
 	if c.Explain.Language == "" {
 		c.Explain.Language = d.Explain.Language
+	}
+	if c.Chat.ClaudeCmd == "" {
+		c.Chat.ClaudeCmd = d.Chat.ClaudeCmd
+	}
+	if len(c.Chat.CloneRoots) == 0 {
+		c.Chat.CloneRoots = d.Chat.CloneRoots
 	}
 	return c
 }
@@ -157,6 +182,27 @@ func ResolveExplainStorePath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(base, "ghrun", "explain-db"), nil
+}
+
+// ExpandHome resolves a leading "~/" so documented paths like "~/dev" work
+// verbatim; callers would otherwise create or stat a literal "~" directory.
+func ExpandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return p
+}
+
+// ResolveChatCacheDir returns the base directory where per-run chat context
+// files are written.
+func ResolveChatCacheDir() (string, error) {
+	base, err := resolveBase("XDG_CACHE_HOME", ".cache")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "ghrun", "chat"), nil
 }
 
 // Load reads config from the resolved path.
